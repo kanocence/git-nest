@@ -1,0 +1,89 @@
+services:
+  # Nuxt 4 Web 界面
+  nuxt-app:
+    build: ./web
+    container_name: git-nest-web
+    restart: unless-stopped
+    ports:
+      - "${WEB_PORT:-3000}:3000"
+    environment:
+      - NUXT_GIT_RUNNER_HOST=git-runner
+      - NUXT_GIT_RUNNER_PORT=3001
+      - NUXT_GIT_RUNNER_SECRET=${GIT_RUNNER_SECRET}
+      - NUXT_PUBLIC_CODE_SERVER_URL=${CODE_SERVER_URL:-}
+      - NUXT_PUBLIC_NAS_HOST=${NUXT_PUBLIC_NAS_HOST:-}
+      - NUXT_WEB_PASSWORD=${WEB_PASSWORD:-}
+    depends_on:
+      git-runner:
+        condition: service_healthy
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      - internal
+
+  # Go git-runner sidecar
+  git-runner:
+    build: ./runner
+    container_name: git-nest-runner
+    restart: unless-stopped
+    user: "${PUID:-1000}:${PGID:-1000}"
+    environment:
+      - API_SECRET=${GIT_RUNNER_SECRET}
+      - GIT_DATA_DIR=/data/git
+      - GIT_WORKSPACE_DIR=/data/workspace
+      - COMMAND_TIMEOUT=${COMMAND_TIMEOUT:-30}
+      - BACKUP_DIR=/data/backups
+      - BACKUP_RETENTION_DAYS=${BACKUP_RETENTION_DAYS:-7}
+      - BACKUP_SCHEDULE_HOUR=${BACKUP_SCHEDULE_HOUR:-3}
+    volumes:
+      - ${GIT_DATA_DIR:-/data/git}:/data/git
+      - ${GIT_WORKSPACE_DIR:-/data/workspace}:/data/workspace
+      - ${BACKUP_DIR:-/data/backups}:/data/backups
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3001/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      - internal
+
+  # code-server 在线编辑器
+  code-server:
+    image: lscr.io/linuxserver/code-server:latest
+    container_name: git-nest-editor
+    restart: unless-stopped
+    environment:
+      - PUID=${PUID:-1000}
+      - PGID=${PGID:-1000}
+      - TZ=${TZ:-Asia/Shanghai}
+      - PASSWORD=${CODE_SERVER_PASSWORD:-}
+      - SUDO_PASSWORD=${CODE_SERVER_SUDO_PASSWORD:-}
+      - DEFAULT_WORKSPACE=/workspace
+    ports:
+      - "${CODE_SERVER_PORT:-8443}:8443"
+    volumes:
+      - ${GIT_WORKSPACE_DIR:-/data/workspace}:/workspace
+      - code-server-config:/config
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      - internal
+
+volumes:
+  code-server-config:
+
+networks:
+  internal:
+    driver: bridge
