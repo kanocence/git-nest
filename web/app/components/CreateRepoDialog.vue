@@ -8,7 +8,8 @@ const repoName = ref('')
 const { createRepo, loading, error } = useRunner()
 
 const nameError = computed(() => {
-  if (!repoName.value) return ''
+  if (!repoName.value)
+    return ''
   if (!/^[a-z0-9][a-z0-9_.-]*$/.test(repoName.value)) {
     return 'Only lowercase letters, digits, "_", ".", "-" allowed (start with letter or digit)'
   }
@@ -23,7 +24,8 @@ const canSubmit = computed(() => {
 })
 
 async function handleCreate() {
-  if (!canSubmit.value) return
+  if (!canSubmit.value)
+    return
 
   try {
     await createRepo(repoName.value)
@@ -50,7 +52,7 @@ defineExpose({ open })
   <ModalDialog v-model="visible" title="Create Repository">
     <div class="space-y-3">
       <div>
-        <label class="block text-sm font-500 mb-1 text-gray-600 dark:text-gray-400">
+        <label class="text-sm text-gray-600 font-500 mb-1 block dark:text-gray-400">
           Repository Name
         </label>
         <input
@@ -58,9 +60,7 @@ defineExpose({ open })
           type="text"
           placeholder="my-project"
           autocomplete="off"
-          class="w-full px-3 py-2 border rounded-lg bg-transparent outline-none
-                 border-gray-200 dark:border-gray-700
-                 focus:border-teal-500 dark:focus:border-teal-500 transition-colors"
+          class="px-3 py-2 outline-none border border-gray-200 rounded-lg bg-transparent w-full transition-colors dark:border-gray-700 focus:border-teal-500 dark:focus:border-teal-500"
           @keydown.enter="handleCreate"
         >
       </div>

@@ -1,7 +1,8 @@
 /**
  * POST /api/repos/:name/clone — 代理 clone SSE 流
  */
-import { validateRepoName } from '~/server/utils/validation'
+import { validateRepoName } from '../../../utils/validation'
+
 export default defineEventHandler(async (event) => {
   const name = validateRepoName(getRouterParam(event, 'name'))
   const config = useRuntimeConfig()

@@ -14,17 +14,6 @@ export default defineNuxtConfig({
     enabled: true,
   },
 
-  runtimeConfig: {
-    gitRunnerHost: process.env.GIT_RUNNER_HOST || 'localhost',
-    gitRunnerPort: process.env.GIT_RUNNER_PORT || '3001',
-    gitRunnerSecret: process.env.GIT_RUNNER_SECRET || '',
-    webPassword: process.env.WEB_PASSWORD || '',
-    public: {
-      codeServerUrl: process.env.NUXT_PUBLIC_CODE_SERVER_URL || '',
-      nasHost: process.env.NUXT_PUBLIC_NAS_HOST || '',
-    },
-  },
-
   app: {
     head: {
       viewport: 'width=device-width,initial-scale=1',
@@ -45,6 +34,17 @@ export default defineNuxtConfig({
 
   colorMode: {
     classSuffix: '',
+  },
+
+  runtimeConfig: {
+    gitRunnerHost: process.env.GIT_RUNNER_HOST || 'localhost',
+    gitRunnerPort: process.env.GIT_RUNNER_PORT || '3001',
+    gitRunnerSecret: process.env.GIT_RUNNER_SECRET || '',
+    webPassword: process.env.WEB_PASSWORD || '',
+    public: {
+      codeServerUrl: process.env.NUXT_PUBLIC_CODE_SERVER_URL || '',
+      nasHost: process.env.NUXT_PUBLIC_NAS_HOST || '',
+    },
   },
 
   future: {

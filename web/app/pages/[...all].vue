@@ -7,7 +7,7 @@ definePageMeta({
 </script>
 
 <template>
-  <div class="text-center py-20">
+  <div class="py-20 text-center">
     <div class="i-carbon-warning text-5xl text-gray-300 mx-auto mb-4" />
     <h1 class="text-2xl font-600 mb-2">
       Page Not Found

@@ -61,7 +61,8 @@ const copied = ref(false)
 // code-server 编辑器链接
 const { public: { codeServerUrl } } = useRuntimeConfig()
 const editorUrl = computed(() => {
-  if (!codeServerUrl || !workspace.value?.exists) return ''
+  if (!codeServerUrl || !workspace.value?.exists)
+    return ''
   // code-server workspace 路径: /workspace/<repo-name>
   const base = codeServerUrl.replace(/\/$/, '')
   return `${base}/?folder=/workspace/${name.value}`
@@ -80,16 +81,16 @@ async function copyUrl() {
 </script>
 
 <template>
-  <div class="max-w-3xl mx-auto">
+  <div class="mx-auto max-w-3xl">
     <!-- Back + Header -->
     <div class="mb-6">
-      <NuxtLink to="/" class="text-sm text-gray-500 hover:text-teal-600 inline-flex items-center gap-1 mb-3">
+      <NuxtLink to="/" class="text-sm text-gray-500 mb-3 inline-flex gap-1 items-center hover:text-teal-600">
         <span class="i-carbon-arrow-left" />
         Repositories
       </NuxtLink>
 
       <div class="flex items-center justify-between">
-        <h1 class="text-2xl font-700 flex items-center gap-2">
+        <h1 class="text-2xl font-700 flex gap-2 items-center">
           <span class="i-carbon-repository text-teal-600" />
           {{ name }}
         </h1>
@@ -103,14 +104,14 @@ async function copyUrl() {
     </div>
 
     <!-- SSH Clone URL -->
-    <div class="p-3 rounded-lg bg-gray-50 dark:bg-gray-800/50 mb-6">
+    <div class="mb-6 p-3 rounded-lg bg-gray-50 dark:bg-gray-800/50">
       <label class="text-xs text-gray-500 mb-1 block">SSH Clone URL</label>
-      <div class="flex items-center gap-2">
-        <code class="flex-1 text-sm font-mono text-gray-700 dark:text-gray-300 break-all">
+      <div class="flex gap-2 items-center">
+        <code class="text-sm text-gray-700 font-mono flex-1 break-all dark:text-gray-300">
           {{ sshUrl }}
         </code>
         <button
-          class="shrink-0 p-1.5 rounded hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
+          class="p-1.5 rounded shrink-0 transition-colors hover:bg-gray-200 dark:hover:bg-gray-700"
           :title="copied ? 'Copied!' : 'Copy'"
           @click="copyUrl"
         >
@@ -121,28 +122,28 @@ async function copyUrl() {
 
     <!-- Workspace Operations -->
     <div class="mb-6">
-      <div class="flex items-center justify-between mb-3">
-        <h2 class="text-lg font-600 flex items-center gap-2">
+      <div class="mb-3 flex items-center justify-between">
+        <h2 class="text-lg font-600 flex gap-2 items-center">
           <span class="i-carbon-terminal" />
           Workspace
         </h2>
-        <div class="flex items-center gap-2">
+        <div class="flex gap-2 items-center">
           <span
             v-if="workspace?.exists"
-            class="text-xs px-2 py-0.5 rounded-full bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400"
+            class="text-xs text-green-600 px-2 py-0.5 rounded-full bg-green-100 dark:text-green-400 dark:bg-green-900/30"
           >
             Cloned
           </span>
           <span
             v-else
-            class="text-xs px-2 py-0.5 rounded-full bg-gray-100 dark:bg-gray-800 text-gray-500"
+            class="text-xs text-gray-500 px-2 py-0.5 rounded-full bg-gray-100 dark:bg-gray-800"
           >
             Not cloned
           </span>
         </div>
       </div>
 
-      <div class="flex flex-wrap gap-2 mb-4">
+      <div class="mb-4 flex flex-wrap gap-2">
         <ActionButton
           v-if="!workspace?.exists"
           label="Clone to Workspace"
@@ -162,7 +163,7 @@ async function copyUrl() {
           :href="editorUrl"
           target="_blank"
           rel="noopener noreferrer"
-          class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-500 transition-colors bg-blue-600 hover:bg-blue-700 text-white cursor-pointer"
+          class="text-sm text-white font-500 px-3 py-1.5 rounded-md bg-blue-600 inline-flex gap-1.5 cursor-pointer transition-colors items-center hover:bg-blue-700"
         >
           <span class="i-carbon-code text-sm" />
           <span>Open in Editor</span>
@@ -180,8 +181,8 @@ async function copyUrl() {
 
     <!-- Commit Log -->
     <div>
-      <div class="flex items-center justify-between mb-3">
-        <h2 class="text-lg font-600 flex items-center gap-2">
+      <div class="mb-3 flex items-center justify-between">
+        <h2 class="text-lg font-600 flex gap-2 items-center">
           <span class="i-carbon-commit" />
           Recent Commits
         </h2>
@@ -194,15 +195,15 @@ async function copyUrl() {
         />
       </div>
 
-      <div v-if="logError" class="p-4 rounded-lg bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400">
+      <div v-if="logError" class="text-red-600 p-4 rounded-lg bg-red-50 dark:text-red-400 dark:bg-red-900/20">
         <span class="i-carbon-warning mr-1" />
         Failed to load commits
-        <button class="text-sm underline ml-2" @click="refreshLog()">
+        <button class="text-sm ml-2 underline" @click="refreshLog()">
           Retry
         </button>
       </div>
 
-      <div v-else class="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
+      <div v-else class="border border-gray-200 rounded-lg overflow-hidden dark:border-gray-700">
         <CommitLog :commits="commits" :loading="logLoading" />
       </div>
     </div>

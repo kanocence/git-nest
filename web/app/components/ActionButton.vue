@@ -31,12 +31,12 @@ const variantClasses = computed(() => {
 
 <template>
   <button
-    class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-500 transition-colors"
+    class="text-sm font-500 px-3 py-1.5 rounded-md inline-flex gap-1.5 transition-colors items-center"
     :class="variantClasses"
     :disabled="disabled || loading"
     @click="$emit('click')"
   >
-    <span v-if="loading" class="i-carbon-renew animate-spin text-sm" />
+    <span v-if="loading" class="i-carbon-renew text-sm animate-spin" />
     <span v-else-if="icon" :class="icon" class="text-sm" />
     <span>{{ label }}</span>
   </button>

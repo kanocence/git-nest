@@ -1,6 +1,4 @@
 <script setup lang="ts">
-const visible = defineModel<boolean>({ default: false })
-
 defineProps<{
   title: string
 }>()
@@ -8,6 +6,8 @@ defineProps<{
 defineEmits<{
   confirm: []
 }>()
+
+const visible = defineModel<boolean>({ default: false })
 </script>
 
 <template>
@@ -15,23 +15,23 @@ defineEmits<{
     <Transition name="modal">
       <div
         v-if="visible"
-        class="fixed inset-0 z-50 flex items-center justify-center"
+        class="flex items-center inset-0 justify-center fixed z-50"
       >
         <!-- Backdrop -->
         <div
-          class="absolute inset-0 bg-black/50"
+          class="bg-black/50 inset-0 absolute"
           @click="visible = false"
         />
 
         <!-- Dialog -->
-        <div class="relative bg-white dark:bg-gray-900 rounded-xl shadow-xl p-6 w-full max-w-md mx-4 z-10">
+        <div class="mx-4 p-6 rounded-xl bg-white max-w-md w-full shadow-xl relative z-10 dark:bg-gray-900">
           <h3 class="text-lg font-600 mb-4">
             {{ title }}
           </h3>
 
           <slot />
 
-          <div class="flex justify-end gap-2 mt-6">
+          <div class="mt-6 flex gap-2 justify-end">
             <ActionButton
               label="Cancel"
               variant="secondary"
