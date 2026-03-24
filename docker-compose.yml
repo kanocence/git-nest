@@ -12,6 +12,8 @@ services:
       - NUXT_GIT_RUNNER_SECRET=${GIT_RUNNER_SECRET}
       - NUXT_PUBLIC_CODE_SERVER_URL=${CODE_SERVER_URL:-}
       - NUXT_PUBLIC_NAS_HOST=${NUXT_PUBLIC_NAS_HOST:-}
+      - NUXT_PUBLIC_SSH_HOST=${SSH_HOST:-}
+      - NUXT_PUBLIC_SSH_GIT_PATH=${SSH_GIT_PATH:-/data/git}
       - NUXT_WEB_PASSWORD=${WEB_PASSWORD:-}
     depends_on:
       git-runner:
@@ -58,7 +60,7 @@ services:
 
   # code-server 在线编辑器
   code-server:
-    image: lscr.io/linuxserver/code-server:latest
+    build: ./code-server
     container_name: git-nest-editor
     restart: unless-stopped
     environment:
@@ -72,6 +74,7 @@ services:
       - "${CODE_SERVER_PORT:-8443}:8443"
     volumes:
       - ${GIT_WORKSPACE_DIR:-/data/workspace}:/workspace
+      - ${GIT_DATA_DIR:-/data/git}:/data/git
       - code-server-config:/config
     logging:
       driver: json-file

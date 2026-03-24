@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"log/slog"
@@ -162,7 +163,7 @@ func handleDeleteRepo(cfg *Config) http.HandlerFunc {
 		unlock := repoLock(name)
 		defer unlock()
 
-		if err := deleteBareRepo(cfg.DataDir, name); err != nil {
+		if err := deleteBareRepo(cfg.DataDir, cfg.WorkspaceDir, name); err != nil {
 			var appErr *AppError
 			if errors.As(err, &appErr) {
 				writeError(w, http.StatusNotFound, appErr.Code, appErr.Message)
@@ -361,21 +362,23 @@ func handleListBackups(cfg *Config) http.HandlerFunc {
 	}
 }
 
-// handleTriggerBackup 手动触发全量备份。
+// handleTriggerBackup 手动触发全量备份（异步）。
 func handleTriggerBackup(cfg *Config) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		results, failed, err := backupAllRepos(r.Context(), cfg)
-		if err != nil {
-			slog.Error("manual backup failed", "error", err)
-			writeError(w, http.StatusInternalServerError, "BACKUP_FAILED", err.Error())
-			return
-		}
-
-		writeJSON(w, http.StatusOK, map[string]any{
-			"message":   "backup completed",
-			"succeeded": len(results),
-			"failed":    failed,
-			"backups":   results,
+		// 立即返回 202，备份在后台 goroutine 中执行
+		writeJSON(w, http.StatusAccepted, map[string]any{
+			"message": "backup started in background",
 		})
+
+		// 使用独立的 context，确保备份不因客户端断开而取消
+		go func() {
+			ctx := context.Background()
+			results, failed, err := backupAllRepos(ctx, cfg)
+			if err != nil {
+				slog.Error("background backup failed", "error", err)
+				return
+			}
+			slog.Info("background backup finished", "succeeded", len(results), "failed", failed)
+		}()
 	}
 }

@@ -104,8 +104,8 @@ func createBareRepo(ctx context.Context, dataDir, name string, timeout time.Dura
 	return nil
 }
 
-// deleteBareRepo 删除一个 bare 仓库。
-func deleteBareRepo(dataDir, name string) error {
+// deleteBareRepo 删除一个 bare 仓库及其 workspace 克隆目录。
+func deleteBareRepo(dataDir, workspaceDir, name string) error {
 	fullPath := repoPath(dataDir, name)
 
 	info, err := os.Stat(fullPath)
@@ -124,10 +124,20 @@ func deleteBareRepo(dataDir, name string) error {
 		return fmt.Errorf("path does not look like a bare git repository")
 	}
 
-	// 清理锁条目防止内存泄漏
+	// 删除 bare repo（耗时 I/O 操作）
+	if err := os.RemoveAll(fullPath); err != nil {
+		return fmt.Errorf("remove bare repo: %w", err)
+	}
+
+	// 删除对应的 workspace 克隆目录（忽略错误）
+	wsPath := workspacePath(workspaceDir, name)
+	os.RemoveAll(wsPath)
+
+	// 锁的清理必须在所有文件系统操作完成后进行，
+	// 否则在删除期间可能有其他 goroutine 重新创建锁并进入临界区。
 	repoUnlock(name)
 
-	return os.RemoveAll(fullPath)
+	return nil
 }
 
 // CommitInfo 提交信息。

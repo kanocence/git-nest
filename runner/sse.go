@@ -15,7 +15,7 @@ import (
 type SSEEvent struct {
 	Type    string `json:"type"`              // "progress" | "done" | "error"
 	Message string `json:"message,omitempty"` // 输出行内容
-	Code    int    `json:"exitCode,omitempty"` // 进程退出码（仅 done/error）
+	Code    int    `json:"exitCode"` // 进程退出码（仅 done/error）
 }
 
 // sseWriter 封装 SSE 写入逻辑。

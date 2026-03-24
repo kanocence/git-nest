@@ -22,10 +22,28 @@ export async function createSSEProxy(options: SSEProxyOptions): Promise<void> {
     headers.Authorization = `Bearer ${gitRunnerSecret}`
   }
 
-  const response = await fetch(`${baseUrl}${path}`, {
-    method: 'POST',
-    headers,
+  const controller = new AbortController()
+  const signal = controller.signal
+
+  // 监听客户端断开，自动终止向后端的 fetch 请求
+  event.node.req.on('close', () => {
+    controller.abort()
   })
+
+  let response: Response
+  try {
+    response = await fetch(`${baseUrl}${path}`, {
+      method: 'POST',
+      headers,
+      signal,
+    })
+  }
+  catch (err: any) {
+    if (err.name === 'AbortError') {
+      return
+    }
+    throw err
+  }
 
   if (!response.ok || !response.body) {
     throw new Error(`Failed to connect to git-runner: ${response.status}`)
@@ -52,9 +70,10 @@ export async function createSSEProxy(options: SSEProxyOptions): Promise<void> {
       }
     }
   }
-  catch {
-    // 客户端断开，取消上游请求
-    reader.cancel()
+  catch (err: any) {
+    if (err.name !== 'AbortError') {
+      throw err
+    }
   }
   finally {
     event.node.res.end()

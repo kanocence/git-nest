@@ -54,8 +54,12 @@ async function handlePull() {
 }
 
 // SSH clone URL (dynamic from config)
-const { public: { nasHost } } = useRuntimeConfig()
-const sshUrl = computed(() => `git@${nasHost || '<nas-host>'}:/data/git/${name.value}.git`)
+const { public: { nasHost, sshHost, sshGitPath } } = useRuntimeConfig()
+const sshUrl = computed(() => {
+  const host = sshHost || nasHost || '<ssh-host>'
+  const gitPath = sshGitPath || '/data/git'
+  return `git@${host}:${gitPath}/${name.value}.git`
+})
 const copied = ref(false)
 
 // code-server 编辑器链接

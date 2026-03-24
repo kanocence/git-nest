@@ -24,10 +24,29 @@ export function useStreamOperation() {
   const currentOp = ref<OperationRecord | null>(null)
   let nextId = 1
 
+  /** 当前执行的 AbortController，用于取消操作 */
+  let currentController: AbortController | null = null
+
+  // 作用域销毁时（如组件卸载）自动中止未完成的 SSE 操作
+  onScopeDispose(() => {
+    if (currentController) {
+      currentController.abort()
+    }
+  })
+
   /**
    * 执行流式操作（clone 或 pull）
    */
   async function execute(type: OperationType, repoName: string): Promise<OperationRecord> {
+    // 中断上一个未完成的操作
+    if (currentController) {
+      currentController.abort()
+      currentController = null
+    }
+
+    const controller = new AbortController()
+    currentController = controller
+
     const op: OperationRecord = {
       id: nextId++,
       type,
@@ -43,7 +62,10 @@ export function useStreamOperation() {
     const url = `/api/repos/${repoName}/${type}`
 
     try {
-      const response = await fetch(url, { method: 'POST' })
+      const response = await fetch(url, {
+        method: 'POST',
+        signal: controller.signal,
+      })
 
       if (!response.ok || !response.body) {
         op.status = 'failed'
@@ -107,11 +129,18 @@ export function useStreamOperation() {
       }
     }
     catch (err: any) {
-      op.status = 'failed'
-      op.lines.push(`Connection error: ${err.message || 'unknown'}`)
+      if (err.name === 'AbortError') {
+        op.status = 'failed'
+        op.lines.push('Operation cancelled')
+      }
+      else {
+        op.status = 'failed'
+        op.lines.push(`Connection error: ${err.message || 'unknown'}`)
+      }
     }
     finally {
       currentOp.value = null
+      currentController = null
     }
 
     return op
@@ -124,8 +153,8 @@ export function useStreamOperation() {
           op.lines.push(event.message)
         break
       case 'done':
-        op.exitCode = event.exitCode
-        op.status = event.exitCode === 0 ? 'success' : 'failed'
+        op.exitCode = event.exitCode ?? 0
+        op.status = (event.exitCode ?? 0) === 0 ? 'success' : 'failed'
         break
       case 'error':
         op.exitCode = event.exitCode

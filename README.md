@@ -1,10 +1,15 @@
 # Git Nest 🪺
 
-> 个人 NAS 上的轻量级 Git 仓库管理系统
+轻量级 Git 仓库管理系统。
 
-基于 Docker Compose 部署，提供 Nuxt.js Web 界面管理 bare 仓库，集成 code-server 实现在线编辑。
+适用场景：
+- 小团队协作开发，使用 Web UI 管理权限和仓库
+- 个人开发者在 VPS/NAS 上管理代码仓库
+- 同步工作电脑内容，回家后通过 Web UI 访问和编辑
 
 ## 核心理念
+
+基于 Docker Compose 部署，提供 Nuxt.js Web 界面管理 bare 仓库，集成 code-server 实现在线编辑。
 
 **权限分离**：Nuxt 前端只做授权与调度，所有 git/文件操作由受限的 `git-runner` sidecar 容器以 `git` 用户身份执行。SSH push/pull 走传统 git 协议，Web 界面负责管理与可视化。
 
@@ -15,15 +20,15 @@
 │                     Docker Compose                       │
 │                                                          │
 │  ┌──────────────┐   HTTP (internal)   ┌───────────────┐  │
-│  │   nuxt-app   │ ─────────────────▶  │  git-runner   │  │
+│  │   nuxt-app   │ ─────────────────>  │  git-runner   │  │
 │  │  (Web UI +   │                     │  (Go sidecar) │  │
-│  │  Server API) │                     │  UID=git user  │  │
+│  │  Server API) │                     │  UID=git user │  │
 │  └──────┬───────┘                     └───────┬───────┘  │
 │         │ :3000                               │          │
-│         │                          ┌──────────┤          │
+│         │                         ┌───────────┤          │
 │  ┌──────┴───────┐            /data/git   /data/workspace │
 │  │  code-server │                 │           │          │
-│  │   (可选)      │─────────────────┘───────────┘          │
+│  │   (可选)     │─────────────────┘───────────┘          │
 │  └──────┬───────┘                                        │
 │         │ :8443                                          │
 └─────────┴────────────────────────────────────────────────┘
@@ -35,26 +40,6 @@
                     └─────────┘
 ```
 
-## 项目结构
-
-```
-git-nest/
-├── README.md                # 本文件 - 项目总览
-├── PLAN.md                  # 开发计划 (MVP → 生产)
-├── docker-compose.yml       # 部署编排
-├── .env.example             # 环境变量模板
-├── docs/OPERATIONS.md       # 运维操作手册
-├── web/                     # Nuxt.js 前端应用
-│   ├── app/                 # 页面、组件、composables
-│   ├── server/              # Nitro server API (代理 git-runner)
-│   ├── Dockerfile           # 前端容器构建
-│   └── ...
-└── runner/                  # git-runner sidecar (待创建)
-    ├── main.go              # Go HTTP 服务
-    ├── Dockerfile
-    └── ...
-```
-
 ## 服务组件
 
 | 服务 | 说明 | 技术栈 | 端口 |
@@ -62,27 +47,6 @@ git-nest/
 | **nuxt-app** | Web UI + Server API，负责授权调度 | Nuxt 4 + Nitro | 3000 |
 | **git-runner** | 执行 git 操作的受限后端 | Go | 内部 3001 |
 | **code-server** | 在线代码编辑器（可选） | code-server | 8443 |
-
-## 目录与权限
-
-| 路径 | 用途 | 所有者 |
-|------|------|--------|
-| `/data/git/*.git` | Bare 仓库 | `git:git` |
-| `/data/workspace/{project}` | 工作目录 | `git:git` |
-| `/home/git/.ssh/authorized_keys` | SSH 公钥 | `git:git` |
-
-## API 概览
-
-Nuxt Server API 代理转发至 git-runner：
-
-| 方法 | 端点 | 说明 |
-|------|------|------|
-| `GET` | `/api/repos` | 列出所有 bare 仓库 |
-| `POST` | `/api/repos` | 创建 bare 仓库 |
-| `GET` | `/api/repos/:name/log` | 查看提交日志 |
-| `POST` | `/api/repos/:name/clone` | Clone 到 workspace |
-| `POST` | `/api/repos/:name/pull` | 在 workspace 执行 pull |
-| `DELETE` | `/api/repos/:name` | 删除仓库 |
 
 ## 快速开始
 
@@ -127,11 +91,10 @@ cd runner && go run .
 
 ## 相关文档
 
-- [PLAN.md](PLAN.md) — 详细开发计划与里程碑
-- [web/README.md](web/README.md) — 前端应用开发说明
-- [docs/OPERATIONS.md](docs/OPERATIONS.md) — 运维操作手册（服务器部署、日常使用、故障排查）
+- [docs/zh/deployment.md](docs/zh/deployment.md) — 部署和运维手册（服务器部署、环境配置、故障排查）
+- [docs/zh/user-guide.md](docs/zh/user-guide.md) — 使用手册（Web UI 操作、SSH 克隆/推送）
+- [web/README.md](web/README.md) — 前端开发说明（技术栈、本地开发、API 路由规范）
 
 ## License
 
 [MIT](LICENSE)
-

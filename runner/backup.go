@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -154,32 +155,66 @@ func cleanOldBackups(cfg *Config) (int, error) {
 	return removed, nil
 }
 
-// backupAllRepos 备份所有 bare repo。
+// backupAllRepos 并发备份所有 bare repo。
 func backupAllRepos(ctx context.Context, cfg *Config) ([]BackupInfo, int, error) {
 	repos, err := listRepos(cfg.DataDir)
 	if err != nil {
 		return nil, 0, fmt.Errorf("list repos: %w", err)
 	}
 
-	results := make([]BackupInfo, 0, len(repos))
-	failed := 0
+	if len(repos) == 0 {
+		return []BackupInfo{}, 0, nil
+	}
+
+	// 限制最大并发数，避免同时打开过多 git 进程
+	const maxConcurrent = 4
+	sem := make(chan struct{}, maxConcurrent)
+
+	var (
+		mu       sync.Mutex
+		results  = make([]BackupInfo, 0, len(repos))
+		failed   int
+		wg       sync.WaitGroup
+		errChan  = make(chan error, len(repos))
+	)
 
 	for _, repo := range repos {
-		timeout := cfg.CommandTimeout * 5
-		if timeout < 5*time.Minute {
-			timeout = 5 * time.Minute
-		}
+		wg.Add(1)
+		go func(repo RepoInfo) {
+			defer wg.Done()
 
-		info, err := bundleRepo(ctx, cfg, repo.Name, timeout)
-		if err != nil {
-			slog.Error("backup failed", "repo", repo.Name, "error", err)
-			failed++
-			continue
-		}
+			// 获取信号量
+			select {
+			case sem <- struct{}{}:
+				defer func() { <-sem }()
+			case <-ctx.Done():
+				errChan <- ctx.Err()
+				return
+			}
 
-		results = append(results, *info)
-		slog.Info("backup completed", "repo", repo.Name, "file", info.Filename, "size", info.Size)
+			timeout := cfg.CommandTimeout * 5
+			if timeout < 5*time.Minute {
+				timeout = 5 * time.Minute
+			}
+
+			info, err := bundleRepo(ctx, cfg, repo.Name, timeout)
+			if err != nil {
+				slog.Error("backup failed", "repo", repo.Name, "error", err)
+				mu.Lock()
+				failed++
+				mu.Unlock()
+				return
+			}
+
+			slog.Info("backup completed", "repo", repo.Name, "file", info.Filename, "size", info.Size)
+			mu.Lock()
+			results = append(results, *info)
+			mu.Unlock()
+		}(repo)
 	}
+
+	wg.Wait()
+	close(errChan)
 
 	// 清理旧备份
 	cleaned, err := cleanOldBackups(cfg)
@@ -233,6 +268,8 @@ func startBackupScheduler(ctx context.Context, cfg *Config) {
 						"failed", failed,
 					)
 				}
+				// 更新 now 为当前时间，确保下次计算基于实际完成时间
+				now = time.Now()
 			}
 		}
 	}()

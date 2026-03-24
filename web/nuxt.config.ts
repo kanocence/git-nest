@@ -44,6 +44,8 @@ export default defineNuxtConfig({
     public: {
       codeServerUrl: process.env.NUXT_PUBLIC_CODE_SERVER_URL || '',
       nasHost: process.env.NUXT_PUBLIC_NAS_HOST || '',
+      sshHost: process.env.NUXT_PUBLIC_SSH_HOST || '',
+      sshGitPath: process.env.NUXT_PUBLIC_SSH_GIT_PATH || '/data/git',
     },
   },
 
@@ -69,7 +71,7 @@ export default defineNuxtConfig({
     },
     prerender: {
       crawlLinks: false,
-      routes: ['/'],
+      routes: [],
     },
   },
 
