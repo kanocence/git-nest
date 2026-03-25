@@ -40,6 +40,12 @@
                     └─────────┘
 ```
 
+## 系统截图
+
+![Git Nest 管理界面](docs/img/screencapture-git-nest.png)
+
+![Code Server 在线编辑](docs/img/screencapture-code-server.png)
+
 ## 服务组件
 
 | 服务 | 说明 | 技术栈 | 端口 |
