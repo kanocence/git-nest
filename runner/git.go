@@ -150,7 +150,8 @@ type CommitInfo struct {
 }
 
 // getRepoLog 获取仓库的提交日志。
-func getRepoLog(ctx context.Context, dataDir, name string, limit int, timeout time.Duration) ([]CommitInfo, error) {
+// 如果 branch 不为空，则只获取该分支的日志。
+func getRepoLog(ctx context.Context, dataDir, name, branch string, limit int, timeout time.Duration) ([]CommitInfo, error) {
 	fullPath := repoPath(dataDir, name)
 
 	if _, err := os.Stat(fullPath); os.IsNotExist(err) {
@@ -162,10 +163,13 @@ func getRepoLog(ctx context.Context, dataDir, name string, limit int, timeout ti
 
 	// 使用 ASCII 控制字符作为分隔符，避免与提交内容冲突
 	// \x1f = Unit Separator (字段间), \x1e = Record Separator (记录间)
-	cmd := exec.CommandContext(ctx, "git", "--git-dir", fullPath, "log",
-		fmt.Sprintf("-n%d", limit),
-		"--pretty=format:%H\x1f%h\x1f%an\x1f%aI\x1f%s\x1e",
-	)
+	args := []string{"--git-dir", fullPath, "log"}
+	if branch != "" {
+		args = append(args, branch)
+	}
+	args = append(args, fmt.Sprintf("-%d", limit), "--pretty=format:%H\x1f%h\x1f%an\x1f%aI\x1f%s\x1e")
+
+	cmd := exec.CommandContext(ctx, "git", args...)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		outputStr := strings.TrimSpace(string(output))
@@ -221,4 +225,46 @@ type AppError struct {
 
 func (e *AppError) Error() string {
 	return e.Message
+}
+
+// BranchInfo 分支信息。
+type BranchInfo struct {
+	Name string `json:"name"`
+}
+
+// listBranches 列出 bare repo 的所有分支。
+func listBranches(ctx context.Context, barePath string, timeout time.Duration) ([]BranchInfo, error) {
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	// 使用 git branch -a 在 bare repo 上列出所有分支
+	cmd := exec.CommandContext(ctx, "git", "--git-dir", barePath, "branch", "-a", "--format=%(refname:short)")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		outputStr := strings.TrimSpace(string(output))
+		// 空仓库（无提交）不算错误
+		if strings.Contains(outputStr, "does not have any commits") ||
+			strings.Contains(outputStr, "bad default revision") {
+			return []BranchInfo{}, nil
+		}
+		return nil, fmt.Errorf("git branch failed: %s: %w", outputStr, err)
+	}
+
+	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
+	branches := make([]BranchInfo, 0, len(lines))
+	seen := make(map[string]bool)
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" || line == "(unknown)" {
+			continue
+		}
+		// 去重
+		if seen[line] {
+			continue
+		}
+		seen[line] = true
+		branches = append(branches, BranchInfo{Name: line})
+	}
+
+	return branches, nil
 }

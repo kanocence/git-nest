@@ -113,26 +113,94 @@ SSH Clone URL 格式：`git@your-ssh-host:/data/git/my-project.git`
 
 ---
 
-## 4. 常见问题
+## 4. Code Server 在线编辑器
 
-### 4.1 仓库名称已存在
+### 4.1 端口转发访问 Code Server
+
+Code Server 运行在服务器内部，需要通过 SSH 端口转发从本地访问。
+
+**设置端口转发：**
+
+```bash
+# 从本地机器执行 SSH 端口转发
+ssh -L 8080:localhost:8443 git@your-server-ip -p 22
+
+# 如果 SSH 端口不是 22，使用 -p 参数指定
+ssh -L 8080:localhost:8443 git@your-server-ip -p 2222
+```
+
+**访问 Code Server：**
+
+1. 执行上述端口转发命令
+2. 在本地浏览器打开 `http://localhost:8080`
+3. 如果配置了密码，输入 Code Server 密码登录
+
+### 4.2 Code Server 配置
+
+在 `.env` 文件中配置 Code Server：
+
+```bash
+# Code Server 端口（容器内部端口）
+CODE_SERVER_PORT=8443
+
+# Code Server 完整访问 URL（前端"Open in Editor"按钮跳转地址）
+# 留空则不显示编辑器按钮
+CODE_SERVER_URL=http://your-server-ip:8443
+
+# Code Server 登录密码（留空则无密码保护）
+CODE_SERVER_PASSWORD=your-password
+```
+
+### 4.3 Code Server 插件推荐
+
+推荐安装以下插件以提升开发体验：
+
+| 插件 | 说明 |
+|------|------|
+| GitLens | 强大的 Git 可视化工具 |
+| Git Graph | 仓库提交历史图形化展示 |
+| ESLint | JavaScript/TypeScript 代码检查 |
+| Prettier | 代码格式化 |
+| Vue - Official | Vue 3 官方插件支持 |
+| TypeScript Vue Plugin | TypeScript 支持 |
+
+### 4.4 工作原理
+
+```
+┌───────────────┐      SSH 端口转发         ┌─────────────────┐
+│  本地浏览器    │  <────────────────────>  │  Code Server    │
+│ localhost:8080│  -L 8080:localhost:8443  │  localhost:8443 │
+└───────────────┘                          └─────────────────┘
+                                                   ↑
+                                 /workspace/<repo> │
+                                              ┌────┴────┐
+                                              │ Workspace│
+                                              │ 目录    │
+                                              └─────────┘
+```
+
+---
+
+## 5. 常见问题
+
+### 5.1 仓库名称已存在
 
 每个仓库名称必须唯一，不能重复创建同名仓库。
 
-### 4.2 SSH 连接被拒绝
+### 5.2 SSH 连接被拒绝
 
 检查：
 1. `authorized_keys` 文件是否正确配置
 2. SSH 服务是否正常运行
 3. 防火墙是否允许 SSH 端口
 
-### 4.3 push 失败
+### 5.3 push 失败
 
 常见原因：
 1. 未正确配置 remote：`git remote -v` 检查
 2. 权限不足：确认 SSH 公钥已添加到服务器
 3. 仓库不存在：先在 Web UI 创建仓库
 
-### 4.4 Web UI 显示仓库但 SSH 无法访问
+### 5.4 Web UI 显示仓库但 SSH 无法访问
 
 确认 `SSH_GIT_PATH` 配置与 `GIT_DATA_DIR` 指向相同目录。

@@ -183,6 +183,7 @@ func handleDeleteRepo(cfg *Config) http.HandlerFunc {
 }
 
 // handleRepoLog 获取仓库提交日志。
+// 支持 ?branch=xxx 参数指定分支，不指定则返回默认分支的日志。
 func handleRepoLog(cfg *Config) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		name := r.PathValue("name")
@@ -196,7 +197,11 @@ func handleRepoLog(cfg *Config) http.HandlerFunc {
 			limit = l
 		}
 
-		commits, err := getRepoLog(r.Context(), cfg.DataDir, name, limit, cfg.CommandTimeout)
+		// 获取 branch 参数
+		branch := r.URL.Query().Get("branch")
+
+		// 直接在 bare repo 上获取日志
+		commits, err := getRepoLog(r.Context(), cfg.DataDir, name, branch, limit, cfg.CommandTimeout)
 		if err != nil {
 			var appErr *AppError
 			if errors.As(err, &appErr) {
@@ -212,6 +217,7 @@ func handleRepoLog(cfg *Config) http.HandlerFunc {
 			"repo":    name,
 			"commits": commits,
 			"total":   len(commits),
+			"branch":  branch,
 		})
 	}
 }
@@ -277,6 +283,35 @@ func handleWorkspaceStatus(cfg *Config) http.HandlerFunc {
 
 		status := getWorkspaceStatus(cfg.WorkspaceDir, name)
 		writeJSON(w, http.StatusOK, status)
+	}
+}
+
+// handleListBranches 列出 bare repo 的分支。
+func handleListBranches(cfg *Config) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		name := r.PathValue("name")
+		if err := validateRepoName(name); err != nil {
+			writeError(w, http.StatusBadRequest, "INVALID_REPO_NAME", err.Error())
+			return
+		}
+
+		barePath := repoPath(cfg.DataDir, name)
+		if _, err := os.Stat(barePath); os.IsNotExist(err) {
+			writeError(w, http.StatusNotFound, "REPO_NOT_FOUND", "repository not found")
+			return
+		}
+
+		branches, err := listBranches(r.Context(), barePath, cfg.CommandTimeout)
+		if err != nil {
+			slog.Error("list branches failed", "name", name, "error", err)
+			writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error())
+			return
+		}
+
+		writeJSON(w, http.StatusOK, map[string]any{
+			"repo":     name,
+			"branches": branches,
+		})
 	}
 }
 

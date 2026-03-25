@@ -8,7 +8,31 @@ definePageMeta({
   layout: 'default',
 })
 
-const { commits, loading: logLoading, error: logError, refresh: refreshLog } = useRepoLog(name)
+// 分支选择 - 本地维护状态，无持久化
+interface Branch {
+  name: string
+}
+
+const { data: branchData } = useFetch<{ branches: Branch[] }>(
+  () => `/api/repos/${name.value}/branches`,
+  {
+    key: `branches-${name.value}`,
+    default: () => ({ branches: [] }),
+  },
+)
+
+// 当前选中的分支（本地状态）
+const selectedBranch = ref<string | undefined>(undefined)
+
+// 当分支数据加载完成后，默认选中第一个
+watch(branchData, (data) => {
+  if (data?.branches?.length && !selectedBranch.value) {
+    selectedBranch.value = data.branches[0]?.name
+  }
+}, { immediate: true })
+
+// 日志根据选中的分支获取
+const { commits, loading: logLoading, error: logError, refresh: refreshLog } = useRepoLog(name, 20, selectedBranch)
 const { deleteRepo, loading: deleting } = useRunner()
 const { operations, currentOp, isRunning, execute } = useStreamOperation()
 const router = useRouter()
@@ -54,11 +78,13 @@ async function handlePull() {
 }
 
 // SSH clone URL (dynamic from config)
-const { public: { nasHost, sshHost, sshGitPath } } = useRuntimeConfig()
+const { public: { serverHost, sshHost, sshGitPath, sshPort } } = useRuntimeConfig()
 const sshUrl = computed(() => {
-  const host = sshHost || nasHost || '<ssh-host>'
-  const gitPath = sshGitPath || '/data/git'
-  return `git@${host}:${gitPath}/${name.value}.git`
+  const host = sshHost || serverHost || '<ssh-host>'
+  const port = sshPort || 22
+  // 移除开头可能的 . 和 /，避免双斜杠
+  const rawPath = sshGitPath?.replace(/^\.?\//, '') || 'data/git'
+  return `ssh://git@${host}:${port}/${rawPath}/${name.value}.git`
 })
 const copied = ref(false)
 
@@ -94,10 +120,25 @@ async function copyUrl() {
       </NuxtLink>
 
       <div class="flex items-center justify-between">
-        <h1 class="text-2xl font-700 flex gap-2 items-center">
-          <span class="i-carbon-repository text-teal-600" />
-          {{ name }}
-        </h1>
+        <div class="flex flex-wrap gap-2 items-center">
+          <h1 class="text-2xl font-700 flex gap-2 items-center">
+            <span class="i-carbon-repository text-teal-600" />
+            {{ name }}
+          </h1>
+          <select
+            v-if="branchData?.branches?.length"
+            v-model="selectedBranch"
+            class="text-sm px-2 py-1 border border-gray-300 rounded bg-white dark:border-gray-600 dark:bg-gray-800"
+          >
+            <option
+              v-for="branch in branchData.branches"
+              :key="branch.name"
+              :value="branch.name"
+            >
+              {{ branch.name }}
+            </option>
+          </select>
+        </div>
         <ActionButton
           label="Delete"
           icon="i-carbon-trash-can"
@@ -121,6 +162,16 @@ async function copyUrl() {
         >
           <span :class="copied ? 'i-carbon-checkmark text-green-500' : 'i-carbon-copy'" class="text-sm" />
         </button>
+      </div>
+      <div class="text-xs text-gray-500 mt-2 space-y-1">
+        <div>
+          <span class="text-gray-400">Clone:</span>
+          <code class="text-gray-600 ml-1 dark:text-gray-400">git clone {{ sshUrl }}</code>
+        </div>
+        <div>
+          <span class="text-gray-400">Or existing repo:</span>
+          <code class="text-gray-600 ml-1 dark:text-gray-400">git remote add origin {{ sshUrl }}</code>
+        </div>
       </div>
     </div>
 

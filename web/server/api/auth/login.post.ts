@@ -37,7 +37,7 @@ export default defineEventHandler(async (event) => {
 
   setCookie(event, 'git-nest-session', token, {
     httpOnly: true,
-    secure: false, // NAS 内网通常无 HTTPS，如有反向代理可改为 true
+    secure: false, // 内网通常无 HTTPS，如有反向代理可改为 true
     sameSite: 'lax',
     maxAge: 60 * 60 * 24 * 30, // 30 天
     path: '/',

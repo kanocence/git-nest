@@ -1,2 +1,2 @@
 export const appName = 'Git Nest'
-export const appDescription = 'Lightweight Git repository manager for your NAS'
+export const appDescription = 'Lightweight Git repository manager for your Server'

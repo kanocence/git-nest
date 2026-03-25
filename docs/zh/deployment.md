@@ -63,7 +63,7 @@ chmod 600 ~/.ssh/authorized_keys
 **验证 SSH 配置**：
 ```bash
 # 测试 SSH 连接（从客户端执行）
-ssh git@your-nas-ip -i ~/.ssh/id_ed25519
+ssh git@your-server-ip -i ~/.ssh/id_ed25519
 # 应该能登录，但会显示 "Remote closed connection"（git 用户无 shell，这是正常的）
 ```
 
@@ -101,8 +101,9 @@ nano .env
 | `GIT_WORKSPACE_DIR` | 工作区目录 | `./data/workspace` |
 | `BACKUP_DIR` | 备份目录 | `./data/backups` |
 | `WEB_PORT` | Web 端口 | `3000` |
-| `NUXT_PUBLIC_NAS_HOST` | Web 界面域名或 IP | `git-nest.your-domain.com` |
-| `SSH_HOST` | SSH 服务主机名（留空则同 NAS_HOST） | `git.your-domain.com` |
+| `NUXT_PUBLIC_SERVER_HOST` | Web 界面域名或 IP | `git-nest.your-domain.com` |
+| `SSH_HOST` | SSH 服务主机名（留空则同 SERVER_HOST） | `git.your-domain.com` |
+| `SSH_PORT` | SSH 端口 | `22` |
 | `SSH_GIT_PATH` | 宿主机上 bare 仓库路径 | `/data/git` |
 
 **生成随机密钥**：
@@ -234,7 +235,7 @@ docker compose logs nuxt-app
 **客户端排查**：
 ```bash
 # 详细模式连接
-ssh -vvv git@your-nas-ip
+ssh -vvv git@your-server-ip
 
 # 常见错误：
 # - "Permission denied (publickey)" — 公钥未正确配置

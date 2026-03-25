@@ -43,9 +43,10 @@ export default defineNuxtConfig({
     webPassword: process.env.WEB_PASSWORD || '',
     public: {
       codeServerUrl: process.env.NUXT_PUBLIC_CODE_SERVER_URL || '',
-      nasHost: process.env.NUXT_PUBLIC_NAS_HOST || '',
+      serverHost: process.env.NUXT_PUBLIC_SERVER_HOST || '',
       sshHost: process.env.NUXT_PUBLIC_SSH_HOST || '',
-      sshGitPath: process.env.NUXT_PUBLIC_SSH_GIT_PATH || '/data/git',
+      sshPort: process.env.NUXT_PUBLIC_SSH_PORT || 22,
+      sshGitPath: process.env.NUXT_PUBLIC_SSH_GIT_PATH || './data/git',
     },
   },
 
