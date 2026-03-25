@@ -44,6 +44,8 @@
 
 ![Git Nest 管理界面](docs/img/screencapture-git-nest.png)
 
+![Git Nest repo 界面](docs/img/screencapture-git-nest-repo.png)
+
 ![Code Server 在线编辑](docs/img/screencapture-code-server.png)
 
 ## 服务组件

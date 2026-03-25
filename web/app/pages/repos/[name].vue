@@ -170,7 +170,7 @@ async function copyUrl() {
         </div>
         <div>
           <span class="text-gray-400">Or existing repo:</span>
-          <code class="text-gray-600 ml-1 dark:text-gray-400">git remote add origin {{ sshUrl }}</code>
+          <code class="text-gray-600 ml-1 dark:text-gray-400">git remote add git-nest {{ sshUrl }}</code>
         </div>
       </div>
     </div>

@@ -62,17 +62,17 @@ git add .
 git commit -m "Initial commit"
 
 # 添加远程仓库（路径与 .env 中 SSH_GIT_PATH 一致）
-git remote add origin git@your-ssh-host:/data/git/my-project.git
+git remote add git-nest git@your-ssh-host:/data/git/my-project.git
 
 # 推送（首次推送设置上游分支）
-git push -u origin main
+git push -u git-nest main
 ```
 
 ### 2.3 拉取更新
 
 ```bash
 cd my-project
-git pull origin main
+git pull git-nest main
 ```
 
 ### 2.4 SSH URL 格式说明
