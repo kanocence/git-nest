@@ -77,6 +77,16 @@ async function handlePull() {
   await refreshLog()
 }
 
+function handleDownloadZip() {
+  const branch = selectedBranch.value || ''
+  const url = branch
+    ? `/api/repos/${name.value}/archive?branch=${encodeURIComponent(branch)}`
+    : `/api/repos/${name.value}/archive`
+  const a = document.createElement('a')
+  a.href = url
+  a.click()
+}
+
 // SSH clone URL (dynamic from config)
 const { public: { serverHost, sshHost, sshGitPath, sshPort } } = useRuntimeConfig()
 const sshUrl = computed(() => {
@@ -212,6 +222,11 @@ async function copyUrl() {
           icon="i-carbon-cloud-download"
           :loading="isRunning"
           @click="handlePull"
+        />
+        <ActionButton
+          label="Download ZIP"
+          icon="i-carbon-document-download"
+          @click="handleDownloadZip"
         />
         <a
           v-if="editorUrl"

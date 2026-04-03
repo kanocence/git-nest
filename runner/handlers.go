@@ -8,7 +8,10 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"regexp"
 	"strconv"
+	"strings"
 )
 
 // --- JSON 响应工具 ---
@@ -416,4 +419,82 @@ func handleTriggerBackup(cfg *Config) http.HandlerFunc {
 			slog.Info("background backup finished", "succeeded", len(results), "failed", failed)
 		}()
 	}
+}
+
+// handleArchiveRepo 打包仓库指定分支为 zip 并流式返回。
+func handleArchiveRepo(cfg *Config) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		name := r.PathValue("name")
+		if err := validateRepoName(name); err != nil {
+			writeError(w, http.StatusBadRequest, "INVALID_REPO_NAME", err.Error())
+			return
+		}
+
+		barePath := repoPath(cfg.DataDir, name)
+		if _, err := os.Stat(barePath); os.IsNotExist(err) {
+			writeError(w, http.StatusNotFound, "REPO_NOT_FOUND", "repository not found")
+			return
+		}
+
+		branch := r.URL.Query().Get("branch")
+		if branch == "" {
+			// 读取默认分支
+			headData, err := os.ReadFile(filepath.Join(barePath, "HEAD"))
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to read HEAD")
+				return
+			}
+			headStr := strings.TrimSpace(string(headData))
+			if strings.HasPrefix(headStr, "ref: refs/heads/") {
+				branch = strings.TrimPrefix(headStr, "ref: refs/heads/")
+			} else {
+				branch = "HEAD"
+			}
+		}
+
+		ctx, cancel := context.WithTimeout(r.Context(), cfg.CommandTimeout)
+		defer cancel()
+
+		// 先校验分支是否存在（rev-parse 在空仓库上也会失败，需区分）
+		verifyCmd := exec.CommandContext(ctx, "git", "--git-dir", barePath, "rev-parse", "--verify", "refs/heads/"+branch)
+		if verifyErr := verifyCmd.Run(); verifyErr != nil {
+			// 检查是否为空仓库（无 commit）：--all 在空仓库返回 "0"，HEAD 在空仓库本身也会出错
+			countCmd := exec.CommandContext(ctx, "git", "--git-dir", barePath, "rev-list", "--count", "--all")
+			countOut, countErr := countCmd.CombinedOutput()
+			if countErr == nil {
+				count := strings.TrimSpace(string(countOut))
+				if count == "0" {
+					writeError(w, http.StatusNotFound, "REPO_EMPTY", "repository has no commits")
+					return
+				}
+			}
+			writeError(w, http.StatusNotFound, "BRANCH_NOT_FOUND", "branch '"+branch+"' not found")
+			return
+		}
+
+		// 设置响应头
+		filename := sanitizeFilename(name + "-" + branch + ".zip")
+		w.Header().Set("Content-Type", "application/zip")
+		w.Header().Set("Content-Disposition", "attachment; filename=\""+filename+"\"")
+
+		// git archive --format=zip 直接输出到 stdout，通过管道传给响应
+		cmd := exec.CommandContext(ctx, "git", "--git-dir", barePath, "archive", "--format=zip", "-o", "-", branch)
+		cmd.Stdout = w
+		cmd.Stderr = nil
+
+		if err := cmd.Run(); err != nil {
+			if ctx.Err() == context.DeadlineExceeded {
+				slog.Warn("archive timeout", "name", name, "branch", branch)
+			} else {
+				slog.Error("git archive failed", "name", name, "branch", branch, "error", err)
+			}
+		}
+	}
+}
+
+// sanitizeFilename 移除文件名中的非法字符。
+func sanitizeFilename(name string) string {
+	// Windows/NTFS 非法字符：< > : " | \ / * ?
+	re := regexp.MustCompile(`[<>:"\\|?*/]`)
+	return re.ReplaceAllString(name, "_")
 }

@@ -62,6 +62,7 @@ func main() {
 	mux.HandleFunc("POST /api/repos/{name}/pull", handlePullRepo(cfg))
 	mux.HandleFunc("GET /api/repos/{name}/workspace", handleWorkspaceStatus(cfg))
 	mux.HandleFunc("GET /api/repos/{name}/branches", handleListBranches(cfg))
+	mux.HandleFunc("GET /api/repos/{name}/archive", handleArchiveRepo(cfg))
 
 	// Hook 管理
 	mux.HandleFunc("GET /api/repos/{name}/hooks", handleGetHookStatus(cfg))
