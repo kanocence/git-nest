@@ -1,3 +1,5 @@
+import { Buffer } from 'node:buffer'
+
 /**
  * 仓库名校验（与 runner 端保持一致）
  */

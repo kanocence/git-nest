@@ -1,3 +1,4 @@
+import process from 'node:process'
 import { pwa } from './app/config/pwa'
 import { appDescription } from './app/constants/index'
 
@@ -40,12 +41,15 @@ export default defineNuxtConfig({
     gitRunnerHost: process.env.GIT_RUNNER_HOST || 'localhost',
     gitRunnerPort: process.env.GIT_RUNNER_PORT || '3001',
     gitRunnerSecret: process.env.GIT_RUNNER_SECRET || '',
+    agentHost: process.env.NUXT_AGENT_HOST || 'localhost',
+    agentPort: process.env.NUXT_AGENT_PORT || '3002',
+    agentSecret: process.env.NUXT_AGENT_SECRET || '',
     webPassword: process.env.WEB_PASSWORD || '',
     public: {
       codeServerUrl: process.env.NUXT_PUBLIC_CODE_SERVER_URL || '',
       serverHost: process.env.NUXT_PUBLIC_SERVER_HOST || '',
       sshHost: process.env.NUXT_PUBLIC_SSH_HOST || '',
-      sshPort: process.env.NUXT_PUBLIC_SSH_PORT || 22,
+      sshPort: Number(process.env.NUXT_PUBLIC_SSH_PORT || 22),
       sshGitPath: process.env.NUXT_PUBLIC_SSH_GIT_PATH || './data/git',
     },
   },

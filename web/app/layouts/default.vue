@@ -30,9 +30,19 @@ async function handleLogout() {
 
     <!-- Top bar -->
     <header class="px-4 py-3 border-b border-gray-200 flex items-center justify-between sm:px-6 dark:border-gray-800">
-      <NuxtLink to="/" class="text-lg font-600 flex gap-2 transition-colors items-center hover:text-teal-600">
-        🪺 Git Nest
-      </NuxtLink>
+      <div class="flex gap-6 items-center">
+        <NuxtLink to="/" class="text-lg font-600 flex gap-2 transition-colors items-center hover:text-teal-600">
+          🪺 Git Nest
+        </NuxtLink>
+        <nav class="text-sm flex gap-3 items-center">
+          <NuxtLink to="/" class="text-gray-500 hover:text-teal-600">
+            Repositories
+          </NuxtLink>
+          <NuxtLink to="/tasks" class="text-gray-500 hover:text-teal-600">
+            AI Tasks
+          </NuxtLink>
+        </nav>
+      </div>
       <div class="flex gap-3 items-center">
         <button
           v-if="authRequired"

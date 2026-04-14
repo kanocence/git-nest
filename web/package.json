@@ -12,6 +12,7 @@
     "start": "node .output/server/index.mjs",
     "start:generate": "npx serve .output/public",
     "lint": "eslint .",
+    "lint --fix": "eslint . --fix",
     "typecheck": "nuxt typecheck"
   },
   "devDependencies": {

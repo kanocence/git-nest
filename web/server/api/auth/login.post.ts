@@ -1,3 +1,5 @@
+import { Buffer } from 'node:buffer'
+
 /**
  * POST /api/auth/login
  * 验证密码并设置 session cookie

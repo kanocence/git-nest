@@ -1,10 +1,10 @@
 /**
  * GET /api/repos/:name/archive — 代理 zip 包下载流
  */
-import { validateRepoName } from '../../../utils/validation'
-import { getRunnerBaseUrl, getRunnerHeaders } from '../../../utils/runner'
 import type { H3Event } from 'h3'
 import { setResponseHeader } from 'h3'
+import { getRunnerBaseUrl, getRunnerHeaders } from '../../../utils/runner'
+import { validateRepoName } from '../../../utils/validation'
 
 export default defineEventHandler(async (event: H3Event) => {
   const name = validateRepoName(getRouterParam(event, 'name'))

@@ -3,14 +3,25 @@
  */
 import { validateRepoName } from '../../../utils/validation'
 
-export default defineEventHandler(async (event) => {
+interface BranchInfo {
+  name: string
+  commit: string
+  isDefault: boolean
+}
+
+interface BranchesResponse {
+  repo: string
+  branches: BranchInfo[]
+}
+
+export default defineEventHandler(async (event): Promise<BranchesResponse> => {
   const name = validateRepoName(getRouterParam(event, 'name'))
   const config = useRuntimeConfig()
   const baseUrl = `http://${config.gitRunnerHost}:${config.gitRunnerPort}`
 
-  const response = await $fetch(`${baseUrl}/api/repos/${name}/branches`, {
+  const response = await $fetch<BranchesResponse>(`${baseUrl}/api/repos/${name}/branches`, {
     headers: {
-      'Authorization': `Bearer ${config.gitRunnerSecret}`,
+      Authorization: `Bearer ${config.gitRunnerSecret}`,
     },
   })
 

@@ -1,0 +1,114 @@
+import type { DbApi } from './db'
+import type { RunManager } from './services/run-manager'
+import type { Config } from './types'
+import type { EventBus } from './utils/events'
+import { serve } from '@hono/node-server'
+import { Hono } from 'hono'
+import { cors } from 'hono/cors'
+import { logger as honoLogger } from 'hono/logger'
+import { loadConfig } from './config'
+import { createDb } from './db'
+import { info, warn } from './logger'
+import { createAuthMiddleware } from './middleware/auth'
+import { errorHandler } from './middleware/error'
+import { setupRoutes } from './routes'
+import { createRunManager } from './services/run-manager'
+import { createEventBus } from './utils/events'
+import { isTerminalRunStatus, RUN_STATUS } from './utils/status'
+
+// 创建应用上下文
+interface AppContext {
+  Variables: {
+    config: Config
+    store: DbApi
+    bus: EventBus
+    runManager: RunManager
+  }
+}
+
+const app = new Hono<AppContext>()
+
+// 中间件
+app.use(honoLogger())
+app.use(cors())
+
+// 初始化依赖
+const config = loadConfig()
+const store = createDb(config.dbPath)
+const bus = createEventBus()
+const runManager = createRunManager(config, store, bus)
+
+// 应用中间件
+app.use(createAuthMiddleware(config))
+app.onError(errorHandler)
+
+// 设置路由
+setupRoutes(app, config, store, bus, runManager)
+
+// 恢复中断的运行
+recoverInterruptedRuns()
+
+// 恢复队列中的运行
+runManager.resumeQueuedRuns()
+
+function recoverInterruptedRuns() {
+  const recovered: Array<{ repo: string, runId: string, action: string }> = []
+
+  for (const lock of store.listRepoLocks()) {
+    const run = store.getRun(lock.run_id)
+
+    if (!run) {
+      store.deleteRepoLock(lock.repo)
+      recovered.push({ repo: lock.repo, runId: lock.run_id, action: 'cleared_orphan_lock' })
+      continue
+    }
+
+    if (run.status === RUN_STATUS.queued)
+      continue
+
+    if (run.status === RUN_STATUS.waitingApproval) {
+      // With persistent checkpoints, waiting_approval runs can be resumed
+      // Keep the lock and status, user can resume via API
+      const approvalState = store.getApprovalState(run.id)
+      if (approvalState) {
+        recovered.push({ repo: run.repo, runId: run.id, action: 'waiting_approval_with_state_preserved' })
+      }
+      else {
+        // No approval state found, mark as interrupted
+        store.updateRunStatus(
+          run.id,
+          RUN_STATUS.systemInterrupted,
+          'Run was waiting for approval but approval state was lost. Please use retry to restart.',
+        )
+        store.deleteRepoLock(lock.repo)
+        recovered.push({ repo: run.repo, runId: run.id, action: 'waiting_approval_to_interrupted' })
+      }
+      continue
+    }
+
+    if (isTerminalRunStatus(run.status)) {
+      store.deleteRepoLock(lock.repo)
+      recovered.push({ repo: lock.repo, runId: run.id, action: 'cleared_terminal_lock' })
+      continue
+    }
+
+    store.updateRunStatus(
+      run.id,
+      RUN_STATUS.systemInterrupted,
+      'Run interrupted by orchestrator restart before reaching a recoverable state',
+    )
+    store.deleteRepoLock(lock.repo)
+    recovered.push({ repo: run.repo, runId: run.id, action: 'marked_system_interrupted' })
+  }
+
+  if (recovered.length > 0) {
+    warn('[agent] recovered interrupted runs', recovered)
+  }
+}
+
+// 启动服务器
+info(`[agent] listening on :${config.port}`)
+serve({
+  fetch: app.fetch,
+  port: config.port,
+})

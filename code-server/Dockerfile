@@ -1,4 +1,4 @@
-FROM lscr.io/linuxserver/code-server:latest
+FROM linuxserver/code-server:latest
 
 # 安装必备环境: Node.js 24.x, Git, 以及 pnpm
 RUN apt-get update -qq && \
@@ -15,3 +15,7 @@ RUN apt-get update -qq && \
 # 拷贝初始化脚本并确保其拥有执行权限
 COPY ./*.sh /custom-cont-init.d/
 RUN chmod +x /custom-cont-init.d/*.sh
+
+# 预创建配置目录并开放权限，确保 named volume 首次挂载时不会 EACCES
+RUN mkdir -p /config/.config /config/data /config/extensions /config/workspace && \
+    chmod -R 777 /config

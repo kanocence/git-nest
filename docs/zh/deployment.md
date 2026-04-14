@@ -1,367 +1,191 @@
-# Git Nest — 部署和运维手册
+# Git Nest 部署与运维手册
 
-> 从零开始在服务器上部署 Git Nest 的完整指南
+> 面向服务器部署和日常运维，覆盖 Web、`git-runner`、`agent`、`code-server` 四个服务。
 
----
+## 1. 服务器准备
 
-## 1. 服务器环境准备
-
-### 1.1 创建 git 用户
-
-在服务器上创建专门的 git 用户，用于管理仓库和 SSH 访问。
+### 1.1 创建数据目录
 
 ```bash
-# 创建 git 用户，指定 UID/GID（建议与你的普通用户一致）
-useradd -m -u 1000 -g 1000 -s /bin/bash git
-
-# 设置密码（可选，SSH key 认证通常不需要）
-passwd git
+mkdir -p ./data/git ./data/workspace ./data/agent-state ./data/backups
 ```
 
-**说明**：
-- `UID/GID 1000` 是默认示例，如果你的用户 UID/GID 不同，请相应调整
-- PUID/PGID 环境变量必须与这里保持一致
-- git 用户需要能写入你指定的 data 目录
+目录说明：
 
-### 1.2 创建目录结构
+- `./data/git`：bare 仓库目录
+- `./data/workspace`：共享工作区，人工与 AI 共用
+- `./data/agent-state`：AI 运行状态目录，包含 SQLite 数据库
+- `./data/backups`：备份目录
+
+### 1.2 权限建议
+
+如果宿主机需要通过固定 UID/GID 运行容器，建议提前让这些目录对对应用户可写。
 
 ```bash
-# 以 root 身份创建数据目录
-mkdir -p ./data/git ./data/workspace ./data/backups
-
-# 设置目录所有者为 git 用户
-chown git:git ./data/git ./data/workspace ./data/backups
-
-# 设置目录权限（组读写，便于后续管理）
-chmod g+rw ./data/git ./data/workspace ./data/backups
+chown -R 1000:1000 ./data
+chmod -R g+rw ./data
 ```
 
-**说明**：
-- `./data/git` — 存储 bare 仓库（`.git` 后缀）
-- `./data/workspace` — clone 操作的工作目录
-- `./data/backups` — git bundle 备份文件
+如果你使用单独的 `git` 用户，也可以把目录所有者设为该用户，并让 `.env` 中的 `PUID`/`PGID` 与之保持一致。
 
-### 1.3 配置 SSH 公钥
+## 2. 环境变量
 
-```bash
-# 切换到 git 用户
-su - git
-
-# 创建 SSH 目录
-mkdir -p ~/.ssh
-chmod 700 ~/.ssh
-
-# 添加你的公钥（将下方的公钥替换为你的）
-cat >> ~/.ssh/authorized_keys << 'EOF'
-ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA... your-email@example.com
-EOF
-
-# 设置权限
-chmod 600 ~/.ssh/authorized_keys
-```
-
-**验证 SSH 配置**：
-```bash
-# 测试 SSH 连接（从客户端执行）
-ssh git@your-server-ip -i ~/.ssh/id_ed25519
-# 应该能登录，但会显示 "Remote closed connection"（git 用户无 shell，这是正常的）
-```
-
----
-
-## 2. Docker 部署
-
-### 2.1 克隆项目
+复制模板：
 
 ```bash
-# 在服务器上克隆 Git Nest
-cd /opt
-git clone https://github.com/your-username/git-nest.git
-cd git-nest
-```
-
-### 2.2 配置环境变量
-
-```bash
-# 复制环境变量模板
 cp .env.example .env
-
-# 编辑配置
-nano .env
 ```
 
-**关键配置项**：
+关键变量如下：
 
-| 变量 | 说明 | 示例值 |
-|------|------|--------|
-| `PUID`/`PGID` | git 用户的 UID/GID | `1000` |
-| `GIT_RUNNER_SECRET` | API 认证密钥（**必须修改**） | `openssl rand -hex 32` |
-| `WEB_PASSWORD` | Web 登录密码（留空则无密码） | `your-password` |
-| `GIT_DATA_DIR` | Bare 仓库目录 | `./data/git` |
-| `GIT_WORKSPACE_DIR` | 工作区目录 | `./data/workspace` |
-| `BACKUP_DIR` | 备份目录 | `./data/backups` |
-| `WEB_PORT` | Web 端口 | `3000` |
-| `NUXT_PUBLIC_SERVER_HOST` | Web 界面域名或 IP | `git-nest.your-domain.com` |
-| `SSH_HOST` | SSH 服务主机名（留空则同 SERVER_HOST） | `git.your-domain.com` |
-| `SSH_PORT` | SSH 端口 | `22` |
-| `SSH_GIT_PATH` | 宿主机上 bare 仓库路径 | `/data/git` |
+| 变量 | 说明 |
+|------|------|
+| `PUID` / `PGID` | `git-runner` 和 `code-server` 访问数据目录时使用的 UID/GID |
+| `GIT_RUNNER_SECRET` | Nuxt 访问 `git-runner` 的共享密钥 |
+| `AGENT_SECRET` | Nuxt 访问 `agent` 的共享密钥 |
+| `WEB_PASSWORD` | Web 登录密码，可留空 |
+| `GIT_DATA_DIR` | bare 仓库目录 |
+| `GIT_WORKSPACE_DIR` | 共享工作区目录 |
+| `AGENT_STATE_DIR` | AI 状态目录，默认 `./data/agent-state` |
+| `AGENT_EXECUTOR_MAX_TURNS` | 单任务最大模型交互轮数 |
+| `AGENT_EXECUTOR_TIMEOUT_MS` | 执行器超时（毫秒） |
+| `OPENAI_API_KEY` / `OPENAI_BASE_URL` | OpenAI-compatible 模型配置 |
+| `GOOSE_PROVIDER` / `GOOSE_MODEL` | Goose CLI 使用的 provider 和模型 |
+| `COMMAND_TIMEOUT_MS` | agent 命令超时 |
+| `AGENT_GIT_USER_NAME` / `AGENT_GIT_USER_EMAIL` | agent 自动提交身份 |
+| `BACKUP_DIR` | 备份目录 |
+| `WEB_PORT` | Web 对外端口 |
+| `CODE_SERVER_PORT` | `code-server` 对外端口 |
+| `CODE_SERVER_URL` | Web 页面的 “Open in Editor” 跳转地址 |
+| `NUXT_PUBLIC_SERVER_HOST` / `SSH_HOST` / `SSH_PORT` / `SSH_GIT_PATH` | SSH Clone URL 展示相关配置 |
 
-**生成随机密钥**：
+建议：
+
+- `GIT_RUNNER_SECRET` 和 `AGENT_SECRET` 都使用随机字符串
+- 生产环境不要留空 `WEB_PASSWORD`
+- `AGENT_STATE_DIR` 不要和 `workspace` 混用
+- 配置 Goose CLI 所需的模型环境变量后再运行 agent
+
+## 3. 启动服务
+
 ```bash
-openssl rand -hex 32
-```
-
-### 2.3 启动服务
-
-```bash
-# 启动所有服务
 docker compose up -d
-
-# 查看服务状态
 docker compose ps
 ```
 
-**预期输出**：
-```
-NAME                STATUS          PORTS
-git-nest-web       Up              0.0.0.0:3000->3000/tcp
-git-nest-runner    Up (healthy)    3001/tcp
-git-nest-editor    Up              0.0.0.0:8443->8443/tcp
-```
+预期会看到：
 
-### 2.4 验证服务
+- `git-nest-web`
+- `git-nest-runner`
+- `git-nest-agent`
+- `git-nest-editor`
+
+其中 `git-runner` 与 `agent` 都带有健康检查。
+
+## 4. 健康检查与日志
+
+### 4.1 Web
 
 ```bash
-# 检查 git-runner 健康状态
-curl http://localhost:3001/health
+curl http://localhost:${WEB_PORT:-3000}
+```
 
-# 预期返回：
-# {"status":"ok","diskUsage":{"gitDir":1.2,"workspace":0.5,"backups":0.1}}
+### 4.2 git-runner
 
-# 检查 Web 界面
-curl http://localhost:3000/api/health
-
-# 查看日志
+```bash
+docker compose ps git-runner
 docker compose logs -f git-runner
-docker compose logs -f nuxt-app
 ```
 
----
-
-## 3. 备份与恢复
-
-### 3.1 手动触发备份
+### 4.3 agent
 
 ```bash
-# 触发备份 API（需要认证）
-curl -X POST http://localhost:3001/api/backups \
-  -H "Authorization: Bearer ${GIT_RUNNER_SECRET}"
-
-# 从服务器本地执行（绕过认证）
-docker exec git-nest-runner wget -qO- --post-data="" \
-  http://localhost:3001/api/backups
+docker compose ps agent
+docker compose logs -f agent
 ```
 
-### 3.2 查看可用备份
+`agent` 容器内有 `/health` 检查，Compose 会直接用它判断服务是否就绪。
+
+### 4.4 code-server
 
 ```bash
-curl http://localhost:3001/api/backups \
-  -H "Authorization: Bearer ${GIT_RUNNER_SECRET}"
+docker compose ps code-server
+docker compose logs -f code-server
 ```
 
-**预期返回**：
-```json
-{
-  "backups": [
-    {
-      "name": "my-project-2024-01-15-030000.bundle",
-      "repo": "my-project",
-      "created": "2024-01-15T03:00:00Z",
-      "size": 1048576
-    }
-  ]
-}
+## 5. AI 相关目录与状态文件
+
+`AGENT_STATE_DIR` 目前至少会包含：
+
+```text
+agent-state/
+└── state.sqlite
 ```
 
-### 3.3 从备份恢复
+当前已经会在该目录下继续保存 run 级事件与模型回合产物。
+
+## 6. 共享 Workspace 运维约束
+
+当前 AI 方案不是独立沙箱，而是共享 `GIT_WORKSPACE_DIR`：
+
+- `code-server` 打开的是 `/workspace`
+- `agent` 也直接使用同一目录
+- 每个 AI 任务通过切换到 `ai/<runId>` 分支工作
+
+因此需要接受下面这些约束：
+
+- 同一仓库同时只允许一个活跃 AI run
+- 启动任务前，`/workspace/<repo>` 必须是干净工作区
+- AI run 运行期间，不要人工修改同一仓库目录
+- 任务完成或取消后，目录可能仍停留在任务分支，人工审查前先确认当前分支
+
+## 7. 升级与重启行为
+
+`agent` 在启动时会扫描历史锁和 runs：
+
+- `queued` / `waiting_approval` 视为可恢复状态，run manager 会自动恢复队列或等待审批
+- 已终态 run（`completed` / `failed` / `cancelled`）会清理残留锁
+- 其他异常锁定中的 run 会被标记为 `system_interrupted`，支持通过 Web 页面重试
+
+这能避免容器异常退出后仓库永久处于占用状态。
+
+## 8. AI 功能边界
+
+当前版本已经实现：
+
+- 任务发现与 YAML 解析校验
+- 共享工作区状态展示与仓库锁管理
+- run 记录、事件持久化与重启恢复
+- 通过 Goose CLI 调用模型
+- Goose 执行器对接与后台执行
+- SSE 实时事件流推送
+- 自动 git commit / push
+- Web 审批（Approve / Reject）、重试（Retry）与释放（Release）
+
+尚未实现：
+
+- webhook 通知（计划功能，当前仅保留配置入口）
+- webhook 通知发送与前端展示
+
+## 9. 常用排障命令
 
 ```bash
-# 下载备份文件到本地
-# 备份文件位置：/data/backups/*.bundle
-
-# 从备份恢复到新仓库
-git clone /data/backups/my-project-2024-01-15-030000.bundle /tmp/my-project-restore
-
-# 进入目录验证
-cd /tmp/my-project-restore
-git log --oneline
-
-# 如果正常，可以将其作为新的 bare 仓库
-git init --bare ./data/git/my-project-restored.git
-git push origin main  # 推送到新仓库
-```
-
-### 3.4 自动备份
-
-Git Nest 默认每天凌晨 3 点自动执行备份，保留最近 7 天。可以在 `.env` 中调整：
-
-```bash
-BACKUP_RETENTION_DAYS=7      # 保留天数
-BACKUP_SCHEDULE_HOUR=3       # 备份时间（小时）
-```
-
----
-
-## 4. 故障排查
-
-### 4.1 服务启动失败
-
-**检查 Docker 日志**：
-```bash
-docker compose logs git-runner
-docker compose logs nuxt-app
-```
-
-**常见问题**：
-
-| 问题 | 原因 | 解决方案 |
-|------|------|----------|
-| `port is already allocated` | 端口被占用 | 修改 `.env` 中的端口，或停止占用端口的服务 |
-| `permission denied` | git 用户权限不足 | 检查 `/data/git` 等目录所有者是否为 `git:git` |
-| `healthy` 状态为 `unhealthy` | 健康检查失败 | 检查 git 可执行文件和目录权限 |
-
-### 4.2 SSH 认证失败
-
-**客户端排查**：
-```bash
-# 详细模式连接
-ssh -vvv git@your-server-ip
-
-# 常见错误：
-# - "Permission denied (publickey)" — 公钥未正确配置
-# - "Host key verification failed" — 主机密钥未信任，先执行 ssh 连接一次
-```
-
-**服务器排查**：
-```bash
-# 检查 authorized_keys 格式
-cat ~/.ssh/authorized_keys
-
-# 确保权限正确
-chmod 600 ~/.ssh/authorized_keys
-chmod 700 ~/.ssh
-```
-
-### 4.3 磁盘空间不足
-
-**检查磁盘使用**：
-```bash
-# 查看各目录大小
-du -sh ./data/git ./data/workspace ./data/backups
-
-# 查看 git-runner 健康状态
-curl http://localhost:3001/health
-```
-
-**清理旧备份**：
-```bash
-# 手动清理超过保留期的备份
-find ./data/backups -name "*.bundle" -mtime +7 -delete
-```
-
-### 4.4 权限错误
-
-**检查目录权限**：
-```bash
-# 所有数据目录必须是 git:git 所有
-ls -la ./data/
-
-# 输出应类似：
-# drwxr-xr-x  git git ./data/git
-# drwxr-xr-x  git git ./data/workspace
-# drwxr-xr-x  git git ./data/backups
-```
-
-**修复权限**：
-```bash
-chown -R git:git ./data/git ./data/workspace ./data/backups
-chmod -R g+rw ./data/git ./data/workspace ./data/backups
-```
-
-### 4.5 查看服务日志
-
-```bash
-# 实时查看所有服务日志
-docker compose logs -f
-
-# 查看特定服务
-docker compose logs -f git-runner
-docker compose logs -f nuxt-app
-
-# 查看最近 100 行
-docker compose logs --tail=100 git-runner
-```
-
-### 4.6 Web UI 无法访问
-
-```bash
-# 检查 nuxt-app 容器状态
-docker compose ps nuxt-app
-
-# 检查端口是否正常映射
-docker port git-nest-web
-
-# 测试本地访问
-curl http://localhost:3000
-```
-
----
-
-## 5. 快速参考
-
-### 常用命令
-
-```bash
-# 启动服务
-docker compose up -d
-
-# 停止服务
-docker compose down
-
-# 重启服务
-docker compose restart git-runner
-
-# 查看状态
 docker compose ps
-
-# 查看日志
 docker compose logs -f
+docker compose logs -f git-runner
+docker compose logs -f agent
+docker compose logs -f nuxt-app
+docker compose logs -f code-server
 ```
 
-### API 端点
+查看数据目录：
 
-| 方法 | 端点 | 说明 |
-|------|------|------|
-| `GET` | `/api/health` | Web 健康检查 |
-| `GET` | `/api/repos` | 列出所有仓库 |
-| `POST` | `/api/repos` | 创建仓库 |
-| `GET` | `/api/repos/:name/log` | 查看提交日志 |
-| `POST` | `/api/repos/:name/clone` | Clone 到 workspace |
-| `POST` | `/api/repos/:name/pull` | Pull 最新代码 |
-| `DELETE` | `/api/repos/:name` | 删除仓库 |
-| `GET` | `/api/backups` | 列出备份 |
-| `POST` | `/api/backups` | 触发备份 |
-| `GET` | `/api/events` | SSE 事件流 |
-
-### 目录结构
-
+```bash
+du -sh ./data/git ./data/workspace ./data/agent-state ./data/backups
 ```
-/data/
-├── git/                    # Bare 仓库
-│   ├── my-project.git/     #   仓库名.git
-│   └── another.git/
-├── workspace/              # Clone 工作目录
-│   └── my-project/         #   与仓库同名
-└── backups/                # Git bundle 备份
-    └── my-project-2024-01-15-030000.bundle
-```
+
+## 10. 相关文档
+
+- [user-guide.md](user-guide.md)
+- [ai-agent.md](ai-agent.md)
+- [../../AI-PLAN.md](../../AI-PLAN.md)
