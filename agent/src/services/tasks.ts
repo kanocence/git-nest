@@ -281,6 +281,8 @@ export function toTaskSummary(definition: TaskDefinition): TaskSummary {
     baseBranch: definition.baseBranch,
     maxIterations: definition.maxIterations,
     hasHumanApproval: definition.hasHumanApproval,
+    requireApproval: definition.hasHumanApproval,
+    acceptance: null,
     roles: definition.roles,
     nodeCount: definition.nodes.length,
     edgeCount: definition.edges.length,
@@ -297,9 +299,11 @@ export function toTaskSummaryV2(definition: TaskDefinitionV2): TaskSummary {
     baseBranch: definition.baseBranch,
     maxIterations: null, // V2 doesn't have maxIterations
     hasHumanApproval: definition.hasHumanApproval,
+    requireApproval: definition.require_approval,
+    acceptance: definition.acceptance,
     roles: [], // V2 doesn't have explicit roles
-    nodeCount: 0, // V2 doesn't have nodes/edges
-    edgeCount: 0,
+    nodeCount: definition.nodeCount ?? 0,
+    edgeCount: definition.edgeCount ?? 0,
     valid: definition.valid,
     parseError: definition.parseError,
     validationErrors: definition.validationErrors,
@@ -359,6 +363,8 @@ export function parseTaskDefinitionV2(content: string, filePath: string): TaskDe
       parseError: 'Invalid YAML syntax',
       version: 2,
       hasHumanApproval: false,
+      nodeCount: 0,
+      edgeCount: 0,
     }
   }
 
@@ -377,6 +383,8 @@ export function parseTaskDefinitionV2(content: string, filePath: string): TaskDe
       parseError: 'Invalid task format',
       version: 2,
       hasHumanApproval: false,
+      nodeCount: 0,
+      edgeCount: 0,
     }
   }
 
@@ -436,6 +444,8 @@ export function parseTaskDefinitionV2(content: string, filePath: string): TaskDe
     parseError: valid ? null : 'Validation failed',
     version: 2,
     hasHumanApproval: require_approval,
+    nodeCount: 0,
+    edgeCount: 0,
   }
 }
 
@@ -482,5 +492,7 @@ function migrateV1ToV2(raw: Record<string, unknown>, filePath: string): TaskDefi
     parseError: v1.parseError,
     version: 2,
     hasHumanApproval: v1.hasHumanApproval,
+    nodeCount: v1.nodes.length,
+    edgeCount: v1.edges.length,
   }
 }

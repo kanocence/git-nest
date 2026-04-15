@@ -307,4 +307,3 @@ ${AGENT_STATE_DIR}/state.sqlite
 
 - [deployment.md](deployment.md)
 - [user-guide.md](user-guide.md)
-- [../../AI-PLAN.md](../../AI-PLAN.md)

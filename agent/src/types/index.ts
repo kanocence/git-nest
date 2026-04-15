@@ -109,6 +109,8 @@ export interface TaskSummary {
   baseBranch: string | null
   maxIterations: number | null
   hasHumanApproval: boolean
+  requireApproval: boolean
+  acceptance: TaskAcceptanceConfig | null
   roles: string[]
   nodeCount: number
   edgeCount: number
@@ -141,6 +143,8 @@ export interface TaskDefinitionV2 {
   parseError: string | null
   version: 2
   hasHumanApproval: boolean
+  nodeCount?: number
+  edgeCount?: number
 }
 
 export interface WorkspaceInfo {

@@ -24,6 +24,65 @@ function formatDate(date: string) {
     minute: '2-digit',
   })
 }
+
+function formatDuration(createdAt: string, updatedAt: string) {
+  const diff = new Date(updatedAt).getTime() - new Date(createdAt).getTime()
+  if (diff < 0)
+    return ''
+  const minutes = Math.floor(diff / 60000)
+  const hours = Math.floor(minutes / 60)
+  const days = Math.floor(hours / 24)
+  if (days > 0)
+    return `${days}d ${hours % 24}h ${minutes % 60}m`
+  if (hours > 0)
+    return `${hours}h ${minutes % 60}m`
+  if (minutes > 0)
+    return `${minutes}m`
+  return `${Math.floor(diff / 1000)}s`
+}
+
+function getStatusClass(status: string) {
+  switch (status) {
+    case 'completed':
+      return 'text-green-700 bg-green-100 dark:text-green-300 dark:bg-green-900/30'
+    case 'failed':
+    case 'system_interrupted':
+      return 'text-red-700 bg-red-100 dark:text-red-300 dark:bg-red-900/30'
+    case 'running':
+    case 'queued':
+    case 'preparing':
+      return 'text-blue-700 bg-blue-100 dark:text-blue-300 dark:bg-blue-900/30'
+    case 'waiting_approval':
+      return 'text-amber-700 bg-amber-100 dark:text-amber-300 dark:bg-amber-900/30'
+    case 'cancelled':
+    default:
+      return 'text-gray-700 bg-gray-100 dark:text-gray-300 dark:bg-gray-800'
+  }
+}
+
+// Filters
+const statusFilter = ref('')
+const repoFilter = ref('')
+
+const statusOptions = computed(() => {
+  const statuses = new Set(runs.value.map(r => r.status))
+  return ['', ...Array.from(statuses).sort()]
+})
+
+const repoOptions = computed(() => {
+  const repos = new Set(runs.value.map(r => r.repo))
+  return ['', ...Array.from(repos).sort()]
+})
+
+const filteredRuns = computed(() => {
+  return runs.value.filter((run) => {
+    if (statusFilter.value && run.status !== statusFilter.value)
+      return false
+    if (repoFilter.value && run.repo !== repoFilter.value)
+      return false
+    return true
+  })
+})
 </script>
 
 <template>
@@ -47,6 +106,39 @@ function formatDate(date: string) {
       />
     </div>
 
+    <!-- Filters -->
+    <div class="mb-4 flex flex-wrap gap-3 items-center">
+      <div class="flex gap-2 items-center">
+        <label class="text-sm text-gray-500">Status</label>
+        <select v-model="statusFilter" class="text-sm px-2 py-1 border border-gray-300 rounded bg-white dark:border-gray-600 dark:bg-gray-800">
+          <option value="">
+            All
+          </option>
+          <option v-for="s in statusOptions.filter(v => v)" :key="s" :value="s">
+            {{ s }}
+          </option>
+        </select>
+      </div>
+      <div class="flex gap-2 items-center">
+        <label class="text-sm text-gray-500">Repo</label>
+        <select v-model="repoFilter" class="text-sm px-2 py-1 border border-gray-300 rounded bg-white dark:border-gray-600 dark:bg-gray-800">
+          <option value="">
+            All repos
+          </option>
+          <option v-for="r in repoOptions.filter(v => v)" :key="r" :value="r">
+            {{ r }}
+          </option>
+        </select>
+      </div>
+      <button
+        v-if="statusFilter || repoFilter"
+        class="text-sm text-teal-600 hover:underline"
+        @click="statusFilter = ''; repoFilter = ''"
+      >
+        Clear filters
+      </button>
+    </div>
+
     <div v-if="error" class="text-red-600 mb-4 p-4 rounded-lg bg-red-50 dark:text-red-400 dark:bg-red-900/20">
       Failed to load AI runs.
     </div>
@@ -55,13 +147,13 @@ function formatDate(date: string) {
       <span class="text-lg animate-pulse">Loading AI runs...</span>
     </div>
 
-    <div v-else-if="runs.length === 0" class="text-gray-500 py-16 text-center">
-      No AI runs yet.
+    <div v-else-if="filteredRuns.length === 0" class="text-gray-500 py-16 text-center">
+      {{ runs.length === 0 ? 'No AI runs yet.' : 'No runs match the selected filters.' }}
     </div>
 
     <div v-else class="space-y-3">
       <div
-        v-for="run in runs"
+        v-for="run in filteredRuns"
         :key="run.id"
         class="p-4 border border-gray-200 rounded-lg dark:border-gray-700"
       >
@@ -69,7 +161,10 @@ function formatDate(date: string) {
           <NuxtLink :to="`/tasks/${run.id}`" class="text-teal-600 font-600 break-all hover:underline">
             {{ run.task_title || run.task_path }}
           </NuxtLink>
-          <span class="text-xs text-gray-600 px-2 py-0.5 rounded-full bg-gray-100 dark:text-gray-300 dark:bg-gray-800">
+          <span
+            class="text-xs px-2 py-0.5 rounded-full"
+            :class="getStatusClass(run.status)"
+          >
             {{ run.status }}
           </span>
         </div>
@@ -82,13 +177,13 @@ function formatDate(date: string) {
         <div class="text-sm text-gray-500 mt-1 break-all">
           Branch: <code>{{ run.task_branch }}</code>
         </div>
-        <div class="text-sm text-gray-500 mt-1 break-all">
-          Task file: <code>{{ run.task_path }}</code>
+        <div class="text-sm text-gray-500 mt-1">
+          Duration: {{ formatDuration(run.created_at, run.updated_at) }}
         </div>
         <div class="text-xs text-gray-400 mt-2">
-          Updated {{ formatDate(run.updated_at) }}
+          Created {{ formatDate(run.created_at) }} · Updated {{ formatDate(run.updated_at) }}
         </div>
-        <div v-if="run.last_error" class="text-xs text-red-600 mt-2 dark:text-red-400">
+        <div v-if="run.last_error" class="text-xs text-red-600 mt-2 line-clamp-2 dark:text-red-400">
           {{ run.last_error }}
         </div>
       </div>

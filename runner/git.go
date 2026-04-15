@@ -184,6 +184,39 @@ func getRepoLog(ctx context.Context, dataDir, name, branch string, limit int, ti
 	return parseGitLog(string(output)), nil
 }
 
+// deleteBranch 删除 bare repo 中的一个本地分支。
+func deleteBranch(ctx context.Context, dataDir, name, branch string, timeout time.Duration) error {
+	fullPath := repoPath(dataDir, name)
+
+	if _, err := os.Stat(fullPath); os.IsNotExist(err) {
+		return &AppError{Code: "REPO_NOT_FOUND", Message: "repository not found"}
+	}
+
+	if !strings.HasPrefix(branch, "ai/") {
+		return &AppError{Code: "INVALID_BRANCH", Message: "only AI task branches can be deleted"}
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	checkCmd := exec.CommandContext(ctx, "git", "--git-dir", fullPath, "check-ref-format", "--branch", branch)
+	if output, err := checkCmd.CombinedOutput(); err != nil {
+		return &AppError{Code: "INVALID_BRANCH", Message: strings.TrimSpace(string(output))}
+	}
+
+	cmd := exec.CommandContext(ctx, "git", "--git-dir", fullPath, "update-ref", "-d", "refs/heads/"+branch)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		outputStr := strings.TrimSpace(string(output))
+		if strings.Contains(outputStr, "fatal: cannot lock ref") {
+			return &AppError{Code: "BRANCH_LOCKED", Message: "branch is currently locked"}
+		}
+		return fmt.Errorf("git update-ref failed: %s: %w", outputStr, err)
+	}
+
+	return nil
+}
+
 // parseGitLog 解析 git log 的结构化输出。
 func parseGitLog(output string) []CommitInfo {
 	output = strings.TrimSpace(output)
@@ -238,7 +271,7 @@ func listBranches(ctx context.Context, barePath string, timeout time.Duration) (
 	defer cancel()
 
 	// 使用 git branch -a 在 bare repo 上列出所有分支
-	cmd := exec.CommandContext(ctx, "git", "--git-dir", barePath, "branch", "-a", "--format=%(refname:short)")
+	cmd := exec.CommandContext(ctx, "git", "--git-dir", barePath, "branch", "--format=%(refname:short)")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		outputStr := strings.TrimSpace(string(output))
@@ -256,6 +289,10 @@ func listBranches(ctx context.Context, barePath string, timeout time.Duration) (
 	for _, line := range lines {
 		line = strings.TrimSpace(line)
 		if line == "" || line == "(unknown)" {
+			continue
+		}
+		// 排除远程分支
+		if strings.HasPrefix(line, "origin/") {
 			continue
 		}
 		// 去重

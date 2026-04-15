@@ -23,6 +23,7 @@ export function useRepoLog(name: MaybeRef<string>, limit = 20, branch?: MaybeRef
       }),
       default: () => ({ repo: repoName.value, commits: [], total: 0 }),
       watch: [repoName, branchRef],
+      immediate: false,
     },
   )
 

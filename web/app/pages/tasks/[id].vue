@@ -92,6 +92,7 @@ const codeServerEditorUrl = computed(() => {
 
 // SSE 实时事件订阅
 const liveEvents = ref<UiEvent[]>([])
+const eventsContainerRef = ref<HTMLElement | null>(null)
 const { status: sseStatus, data: sseData } = useEventSource('/api/ai/events')
 
 // 监听 SSE 数据变化
@@ -103,8 +104,15 @@ watch(sseData, (newData) => {
     // 只处理当前 run 的事件（connected 全局事件也显示）
     if (event.runId === id.value || event.run_id === id.value || event.type === 'connected') {
       liveEvents.value.push(toUiEvent(event, true))
+      if (liveEvents.value.length > 200)
+        liveEvents.value = liveEvents.value.slice(-200)
       // 自动刷新详情以获取最新状态
       refresh()
+      // 滚动到底部
+      nextTick(() => {
+        if (eventsContainerRef.value)
+          eventsContainerRef.value.scrollTop = eventsContainerRef.value.scrollHeight
+      })
     }
   }
   catch {
@@ -142,6 +150,7 @@ const isTerminal = computed(() => {
     return false
   return ['completed', 'failed', 'cancelled'].includes(run.value.status)
 })
+const canDeleteTaskBranch = computed(() => Boolean(isTerminal.value && run.value?.task_branch?.startsWith('ai/')))
 
 // 执行操作
 async function executeAction(action: string) {
@@ -164,6 +173,32 @@ async function executeAction(action: string) {
   }
 }
 
+// 删除任务分支
+const showDeleteBranchConfirm = ref(false)
+const deletingBranch = ref(false)
+
+async function deleteTaskBranch() {
+  if (!run.value)
+    return
+  deletingBranch.value = true
+  actionError.value = ''
+  actionSuccess.value = ''
+  try {
+    await $fetch(`/api/repos/${run.value.repo}/branches/delete`, {
+      method: 'POST',
+      body: { branch: run.value.task_branch },
+    })
+    actionSuccess.value = 'Task branch deleted'
+    showDeleteBranchConfirm.value = false
+  }
+  catch (err: any) {
+    actionError.value = err?.data?.error || err?.message || 'Delete branch failed'
+  }
+  finally {
+    deletingBranch.value = false
+  }
+}
+
 function formatDate(date: string) {
   return new Date(date).toLocaleString('zh-CN', {
     year: 'numeric',
@@ -175,20 +210,39 @@ function formatDate(date: string) {
   })
 }
 
+function formatDuration(createdAt: string, updatedAt: string) {
+  const diff = new Date(updatedAt).getTime() - new Date(createdAt).getTime()
+  if (diff < 0)
+    return ''
+  const minutes = Math.floor(diff / 60000)
+  const hours = Math.floor(minutes / 60)
+  const days = Math.floor(hours / 24)
+  if (days > 0)
+    return `${days}d ${hours % 24}h ${minutes % 60}m`
+  if (hours > 0)
+    return `${hours}h ${minutes % 60}m`
+  if (minutes > 0)
+    return `${minutes}m`
+  return `${Math.floor(diff / 1000)}s`
+}
+
 // 状态标签样式
 function getStatusClass(status: string) {
   switch (status) {
     case 'completed':
-      return 'text-green-600'
+      return 'text-green-700 bg-green-100 dark:text-green-300 dark:bg-green-900/30'
     case 'failed':
     case 'system_interrupted':
-      return 'text-red-600'
+      return 'text-red-700 bg-red-100 dark:text-red-300 dark:bg-red-900/30'
     case 'waiting_approval':
-      return 'text-amber-600'
+      return 'text-amber-700 bg-amber-100 dark:text-amber-300 dark:bg-amber-900/30'
     case 'running':
-      return 'text-blue-600'
+    case 'queued':
+    case 'preparing':
+      return 'text-blue-700 bg-blue-100 dark:text-blue-300 dark:bg-blue-900/30'
+    case 'cancelled':
     default:
-      return 'text-gray-600'
+      return 'text-gray-700 bg-gray-100 dark:text-gray-300 dark:bg-gray-800'
   }
 }
 </script>
@@ -242,7 +296,7 @@ function getStatusClass(status: string) {
       </div>
 
       <!-- 状态操作按钮 -->
-      <div v-if="!isTerminal" class="mb-6 p-4 border border-gray-200 rounded-lg dark:border-gray-700">
+      <div v-if="!isTerminal || canDeleteTaskBranch" class="mb-6 p-4 border border-gray-200 rounded-lg dark:border-gray-700">
         <div class="text-sm font-600 mb-3">
           Actions
         </div>
@@ -276,6 +330,14 @@ function getStatusClass(status: string) {
             variant="danger"
             :loading="actionLoading === 'release'"
             @click="executeAction('release')"
+          />
+          <ActionButton
+            v-if="canDeleteTaskBranch"
+            label="Delete Task Branch"
+            icon="i-carbon-trash-can"
+            variant="danger"
+            :loading="deletingBranch"
+            @click="showDeleteBranchConfirm = true"
           />
         </div>
       </div>
@@ -315,29 +377,38 @@ function getStatusClass(status: string) {
           <div class="text-xs text-gray-500 mt-4">
             Status
           </div>
-          <div class="font-600 mt-1" :class="getStatusClass(run.status)">
+          <div
+            class="text-xs font-600 mt-1 px-2 py-0.5 rounded-full inline-block"
+            :class="getStatusClass(run.status)"
+          >
             {{ run.status }}
           </div>
           <div class="text-xs text-gray-500 mt-4">
             Task File
           </div>
-          <code class="text-sm mt-1 block break-all">{{ run.task_path }}</code>
+          <code class="text-sm mt-1 block break-all">{{ run.task_path || '-' }}</code>
         </div>
 
         <div class="p-4 border border-gray-200 rounded-lg dark:border-gray-700">
           <div class="text-xs text-gray-500">
             Branch
           </div>
-          <code class="text-sm mt-1 block break-all">{{ run.task_branch }}</code>
+          <code class="text-sm mt-1 block break-all">{{ run.task_branch || '-' }}</code>
           <div class="text-xs text-gray-500 mt-4">
             Workspace
           </div>
-          <code class="text-sm mt-1 block break-all">{{ run.workspace_path }}</code>
+          <code class="text-sm mt-1 block break-all">{{ run.workspace_path || '-' }}</code>
           <div class="text-xs text-gray-500 mt-4">
-            Updated
+            Created
           </div>
           <div class="text-sm mt-1">
-            {{ formatDate(run.updated_at) }}
+            {{ formatDate(run.created_at) }}
+          </div>
+          <div class="text-xs text-gray-500 mt-4">
+            Duration
+          </div>
+          <div class="text-sm mt-1">
+            {{ formatDuration(run.created_at, run.updated_at) || '-' }}
           </div>
           <div v-if="run.max_iterations != null" class="text-xs text-gray-500 mt-4">
             Iteration
@@ -365,7 +436,11 @@ function getStatusClass(status: string) {
         <div v-if="allEvents.length === 0" class="text-sm text-gray-500 p-6">
           No events recorded yet.
         </div>
-        <div v-else class="divide-gray-100 divide-y dark:divide-gray-800">
+        <div
+          v-else
+          ref="eventsContainerRef"
+          class="max-h-96 overflow-auto divide-gray-100 divide-y dark:divide-gray-800"
+        >
           <div
             v-for="event in allEvents"
             :key="event.key"
@@ -392,6 +467,25 @@ function getStatusClass(status: string) {
           </div>
         </div>
       </div>
+
+      <!-- Delete Branch Confirmation -->
+      <ModalDialog v-model="showDeleteBranchConfirm" title="Delete Task Branch">
+        <p>
+          Are you sure you want to delete branch <strong>{{ run.task_branch }}</strong>?
+        </p>
+        <p class="text-sm text-red-500 mt-2">
+          This action cannot be undone.
+        </p>
+        <template #actions>
+          <ActionButton
+            label="Delete"
+            icon="i-carbon-trash-can"
+            variant="danger"
+            :loading="deletingBranch"
+            @click="deleteTaskBranch"
+          />
+        </template>
+      </ModalDialog>
     </template>
   </div>
 </template>

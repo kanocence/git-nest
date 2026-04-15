@@ -24,6 +24,7 @@ export interface CommitLogResponse {
   repo: string
   commits: CommitInfo[]
   total: number
+  branch?: string
 }
 
 export interface RepoCreateRequest {
@@ -35,12 +36,20 @@ export interface ApiErrorResponse {
   code: string
 }
 
+export interface AiTaskAcceptanceConfig {
+  commands: string[]
+  timeout: number
+  fail_fast: boolean
+}
+
 export interface AiTaskSummary {
   path: string
   title: string
   baseBranch: string | null
   maxIterations: number | null
   hasHumanApproval: boolean
+  requireApproval: boolean
+  acceptance: AiTaskAcceptanceConfig | null
   roles: string[]
   nodeCount: number
   edgeCount: number

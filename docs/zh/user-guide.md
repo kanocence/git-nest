@@ -243,4 +243,3 @@ GOOSE_MODEL=gpt-4o-mini
 
 - [deployment.md](deployment.md)
 - [ai-agent.md](ai-agent.md)
-- [../../AI-PLAN.md](../../AI-PLAN.md)

@@ -289,6 +289,57 @@ func handleWorkspaceStatus(cfg *Config) http.HandlerFunc {
 	}
 }
 
+// handleDeleteBranch 删除 bare repo 的一个本地分支。
+func handleDeleteBranch(cfg *Config) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		name := r.PathValue("name")
+		if err := validateRepoName(name); err != nil {
+			writeError(w, http.StatusBadRequest, "INVALID_REPO_NAME", err.Error())
+			return
+		}
+
+		r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
+		var body struct {
+			Branch string `json:"branch"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			writeError(w, http.StatusBadRequest, "INVALID_REQUEST", "invalid JSON body")
+			return
+		}
+		if body.Branch == "" {
+			writeError(w, http.StatusBadRequest, "BRANCH_REQUIRED", "branch is required")
+			return
+		}
+
+		unlock := repoLock(name)
+		defer unlock()
+
+		if err := deleteBranch(r.Context(), cfg.DataDir, name, body.Branch, cfg.CommandTimeout); err != nil {
+			var appErr *AppError
+			if errors.As(err, &appErr) {
+				status := http.StatusNotFound
+				if appErr.Code == "INVALID_BRANCH" {
+					status = http.StatusBadRequest
+				} else if appErr.Code == "BRANCH_LOCKED" {
+					status = http.StatusConflict
+				}
+				writeError(w, status, appErr.Code, appErr.Message)
+				return
+			}
+			slog.Error("delete branch failed", "name", name, "branch", body.Branch, "error", err)
+			writeError(w, http.StatusInternalServerError, "COMMAND_FAILED", err.Error())
+			return
+		}
+
+		slog.Info("branch deleted", "name", name, "branch", body.Branch)
+		writeJSON(w, http.StatusOK, map[string]string{
+			"name":    name,
+			"branch":  body.Branch,
+			"message": "branch deleted",
+		})
+	}
+}
+
 // handleListBranches 列出 bare repo 的分支。
 func handleListBranches(cfg *Config) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {

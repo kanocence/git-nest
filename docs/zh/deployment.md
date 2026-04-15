@@ -188,4 +188,3 @@ du -sh ./data/git ./data/workspace ./data/agent-state ./data/backups
 
 - [user-guide.md](user-guide.md)
 - [ai-agent.md](ai-agent.md)
-- [../../AI-PLAN.md](../../AI-PLAN.md)

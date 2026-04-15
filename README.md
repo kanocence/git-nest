@@ -129,7 +129,6 @@ cd agent && pnpm install && pnpm dev
 - [docs/zh/deployment.md](docs/zh/deployment.md) — 部署和运维手册（服务器部署、环境配置、故障排查）
 - [docs/zh/user-guide.md](docs/zh/user-guide.md) — 使用手册（Web UI、SSH、Code Server、AI 任务面板）
 - [docs/zh/ai-agent.md](docs/zh/ai-agent.md) — AI Agent 当前实现、YAML 结构、API、共享 workspace 规则与限制
-- [AI-PLAN.md](AI-PLAN.md) — AI Agent V1 设计方案与目标范围
 - [web/README.md](web/README.md) — 前端开发说明（技术栈、本地开发、API 路由规范）
 
 ## License

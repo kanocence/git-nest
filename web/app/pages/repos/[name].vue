@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { AiTaskListResponse, AiWorkspaceState } from '~/types'
+import type { AiRunListResponse, AiTaskListResponse, AiWorkspaceState } from '~/types'
 
 const route = useRoute('repos-name')
 const name = computed(() => route.params.name as string)
@@ -26,14 +26,9 @@ const { data: branchData } = useFetch<{ branches: Branch[] }>(
 // 当前选中的分支（本地状态）
 const selectedBranch = ref<string | undefined>(undefined)
 
-watch(branchData, (data) => {
-  if (data?.branches?.length && !selectedBranch.value) {
-    selectedBranch.value = data.branches[0]?.name
-  }
-}, { immediate: true })
-
 const { commits, loading: logLoading, error: logError, refresh: refreshLog } = useRepoLog(name, 20, selectedBranch)
 const { deleteRepo, loading: deleting } = useRunner()
+
 const { operations, currentOp, isRunning, execute } = useStreamOperation()
 const router = useRouter()
 
@@ -55,6 +50,7 @@ const { data: aiTasks, refresh: refreshAiTasks } = useFetch<AiTaskListResponse>(
   {
     key: () => `ai-tasks-${name.value}-${selectedBranch.value || ''}`,
     default: () => ({ repo: name.value, ref: selectedBranch.value || '', tasks: [], total: 0 }),
+    immediate: false,
   },
 )
 
@@ -79,12 +75,206 @@ const { data: aiWorkspace, refresh: refreshAiWorkspace } = useFetch<AiWorkspaceS
   },
 )
 
+const { data: aiRuns, refresh: refreshAiRuns } = useFetch<AiRunListResponse>(
+  '/api/ai/runs',
+  {
+    key: 'ai-runs-repo',
+    default: () => ({ runs: [], total: 0 }),
+  },
+)
+
+const repoRuns = computed(() => aiRuns.value?.runs.filter(r => r.repo === name.value) || [])
+
+watch(branchData, (data) => {
+  const branches = data?.branches || []
+  if (!branches.length)
+    return
+
+  const hasSelectedBranch = selectedBranch.value
+    ? branches.some(branch => branch.name === selectedBranch.value)
+    : false
+  if (!hasSelectedBranch)
+    selectedBranch.value = branches[0]?.name
+}, { immediate: true })
+
+watch(selectedBranch, async (branch) => {
+  if (!branch)
+    return
+
+  await Promise.all([
+    refreshLog(),
+    refreshAiTasks(),
+  ])
+}, { immediate: true })
+
+function getTaskRuns(taskPath: string) {
+  return repoRuns.value.filter(r => r.task_path === taskPath)
+}
+
+function hasTaskHistory(taskPath: string) {
+  return getTaskRuns(taskPath).some(r => r.status !== 'cancelled')
+}
+
+function getLatestTaskRun(taskPath: string) {
+  const runs = getTaskRuns(taskPath)
+  return runs.length ? runs[0] : null
+}
+
+// SSE 实时日志
+const liveEvents = ref<Array<{ type: string, message: string, createdAt: string }>>([])
+const showLiveLogs = ref(false)
+const { data: sseData } = useEventSource('/api/ai/events')
+
+watch(sseData, (newData) => {
+  if (!newData)
+    return
+  try {
+    const event = JSON.parse(newData)
+    const runId = event.runId || event.run_id
+    const isCurrentRepo = event.repo === name.value
+    const isRelevant = isCurrentRepo || (runId && repoRuns.value.some(r => r.id === runId))
+    if (!isRelevant)
+      return
+
+    const type = event.type || 'unknown'
+    let message = event.message
+    if (!message) {
+      if (type === 'run.executor_log')
+        message = event.log || '[executor log]'
+      else if (type === 'run.queued')
+        message = 'Run queued'
+      else if (type === 'run.started')
+        message = 'Run started'
+      else if (type === 'run.completed')
+        message = 'Run completed'
+      else if (type === 'run.failed')
+        message = `Run failed: ${event.error || ''}`
+      else if (type === 'run.released')
+        message = 'Run released'
+      else if (type === 'connected')
+        message = 'Connected to event stream'
+      else if (type === 'run.waiting_approval')
+        message = 'Run waiting for approval'
+      else
+        message = JSON.stringify(event.payload ?? event)
+    }
+
+    liveEvents.value.push({
+      type,
+      message,
+      createdAt: new Date().toISOString(),
+    })
+    if (liveEvents.value.length > 20)
+      liveEvents.value = liveEvents.value.slice(-20)
+
+    // 自动展开 live logs
+    if (aiWorkspace.value?.occupiedByAi)
+      showLiveLogs.value = true
+
+    // 收到终态事件时刷新 workspace 和 runs
+    if (['run.completed', 'run.failed', 'run.cancelled', 'run.released'].includes(type)) {
+      refreshAiWorkspace()
+      refreshAiRuns()
+    }
+  }
+  catch {
+    // ignore parse errors
+  }
+})
+
+const pendingStartTaskPath = ref<string | null>(null)
+const showRestartConfirm = ref(false)
+
+function promptStartAiTask(taskPath: string) {
+  if (hasTaskHistory(taskPath)) {
+    pendingStartTaskPath.value = taskPath
+    showRestartConfirm.value = true
+  }
+  else {
+    doStartAiTask(taskPath)
+  }
+}
+
+function doStartAiTask(taskPath: string) {
+  showRestartConfirm.value = false
+  handleStartAiTask(taskPath)
+}
+
 const aiActionError = ref('')
 const aiStartingTaskPath = ref<string | null>(null)
 const canStartAiTask = computed(() => aiWorkspace.value?.occupiedByAi !== true && aiWorkspace.value?.clean !== false)
 
 // 删除确认
 const showDeleteConfirm = ref(false)
+
+// Task upload / delete
+const taskFileInput = ref<HTMLInputElement | null>(null)
+const uploading = ref(false)
+const uploadSuccess = ref('')
+const uploadError = ref('')
+const taskToDelete = ref<string | null>(null)
+const showDeleteTaskConfirm = ref(false)
+
+function triggerTaskUpload() {
+  taskFileInput.value?.click()
+}
+
+async function handleTaskFileSelect(event: Event) {
+  const target = event.target as HTMLInputElement
+  const file = target.files?.[0]
+  if (!file)
+    return
+
+  uploading.value = true
+  uploadError.value = ''
+  uploadSuccess.value = ''
+
+  try {
+    const content = await file.text()
+    const filePath = `.git-nest/tasks/${file.name}`
+    await $fetch(`/api/repos/${name.value}/ai/tasks/upload`, {
+      method: 'POST',
+      body: { filePath, content, ref: selectedBranch.value || undefined },
+    })
+    uploadSuccess.value = `Uploaded ${file.name}`
+    await refreshAiTasks()
+  }
+  catch (error: any) {
+    uploadError.value = error?.data?.error || error?.statusMessage || 'Upload failed'
+  }
+  finally {
+    uploading.value = false
+    if (target)
+      target.value = ''
+  }
+}
+
+function confirmDeleteTask(taskPath: string) {
+  taskToDelete.value = taskPath
+  showDeleteTaskConfirm.value = true
+}
+
+async function handleDeleteTask() {
+  if (!taskToDelete.value)
+    return
+  try {
+    const query = new URLSearchParams({ filePath: taskToDelete.value })
+    if (selectedBranch.value)
+      query.set('ref', selectedBranch.value)
+    await $fetch(`/api/repos/${name.value}/ai/tasks/delete?${query.toString()}`, {
+      method: 'DELETE',
+    })
+    uploadSuccess.value = 'Task deleted'
+    await refreshAiTasks()
+  }
+  catch (error: any) {
+    uploadError.value = error?.data?.error || error?.statusMessage || 'Delete failed'
+  }
+  finally {
+    showDeleteTaskConfirm.value = false
+    taskToDelete.value = null
+  }
+}
 
 async function handleDelete() {
   try {
@@ -189,31 +379,18 @@ async function copyUrl() {
         Repositories
       </NuxtLink>
 
-      <div class="flex items-center justify-between">
-        <div class="flex flex-wrap gap-2 items-center">
-          <h1 class="text-2xl font-700 flex gap-2 items-center">
-            <span class="i-carbon-repository text-teal-600" />
-            {{ name }}
-          </h1>
-          <select
-            v-if="branchData?.branches?.length"
-            v-model="selectedBranch"
-            class="text-sm px-2 py-1 border border-gray-300 rounded bg-white dark:border-gray-600 dark:bg-gray-800"
-          >
-            <option
-              v-for="branch in branchData.branches"
-              :key="branch.name"
-              :value="branch.name"
-            >
-              {{ branch.name }}
-            </option>
-          </select>
-        </div>
-        <ActionButton
-          label="Delete"
-          icon="i-carbon-trash-can"
-          variant="danger"
-          @click="showDeleteConfirm = true"
+      <h1 class="text-2xl font-700 flex gap-2 items-center">
+        <span class="i-carbon-repository text-teal-600" />
+        {{ name }}
+      </h1>
+
+      <hr class="my-4 border-gray-200 dark:border-gray-700">
+
+      <div class="flex flex-wrap gap-3 items-center">
+        <BranchSelector
+          v-if="branchData?.branches?.length"
+          v-model="selectedBranch"
+          :branches="branchData.branches.map(b => b.name)"
         />
       </div>
     </div>
@@ -329,7 +506,28 @@ async function copyUrl() {
           >
             Idle
           </span>
+          <ActionButton
+            label="Upload Task"
+            icon="i-carbon-upload"
+            variant="secondary"
+            :loading="uploading"
+            @click="triggerTaskUpload"
+          />
+          <input
+            ref="taskFileInput"
+            type="file"
+            accept=".yaml,.yml"
+            class="hidden"
+            @change="handleTaskFileSelect"
+          >
         </div>
+      </div>
+
+      <div v-if="uploadSuccess" class="text-sm text-green-600 mb-3 p-3 rounded-lg bg-green-50 dark:text-green-400 dark:bg-green-900/20">
+        {{ uploadSuccess }}
+      </div>
+      <div v-if="uploadError" class="text-sm text-red-600 mb-3 p-3 rounded-lg bg-red-50 dark:text-red-400 dark:bg-red-900/20">
+        {{ uploadError }}
       </div>
 
       <div class="mb-4 p-4 rounded-lg bg-gray-50 space-y-2 dark:bg-gray-800/50">
@@ -367,6 +565,40 @@ async function copyUrl() {
         </div>
       </div>
 
+      <!-- Live Logs -->
+      <div v-if="liveEvents.length || aiWorkspace?.occupiedByAi" class="mb-4 border border-gray-200 rounded-lg dark:border-gray-700">
+        <button
+          class="px-4 py-3 text-left flex w-full items-center justify-between"
+          @click="showLiveLogs = !showLiveLogs"
+        >
+          <div class="flex gap-2 items-center">
+            <span class="i-carbon-terminal" />
+            <span class="text-sm font-600">Live Logs</span>
+            <span v-if="aiWorkspace?.occupiedByAi" class="text-xs text-green-600">● Live</span>
+          </div>
+          <span :class="showLiveLogs ? 'i-carbon-chevron-up' : 'i-carbon-chevron-down'" />
+        </button>
+        <div v-if="showLiveLogs" class="border-t border-gray-200 max-h-60 overflow-auto dark:border-gray-700">
+          <div v-if="!liveEvents.length" class="text-sm text-gray-500 p-4">
+            Waiting for events...
+          </div>
+          <div v-else class="divide-gray-100 divide-y dark:divide-gray-800">
+            <div
+              v-for="(evt, idx) in liveEvents.slice().reverse()"
+              :key="idx"
+              class="text-sm px-4 py-2"
+            >
+              <div class="text-xs text-gray-400">
+                {{ new Date(evt.createdAt).toLocaleTimeString('zh-CN') }}
+              </div>
+              <div class="text-gray-700 dark:text-gray-300">
+                {{ evt.message }}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <div v-if="aiTasks?.tasks?.length" class="space-y-3">
         <div
           v-for="task in aiTasks.tasks"
@@ -385,16 +617,22 @@ async function copyUrl() {
                 Invalid YAML
               </span>
               <span
-                v-if="task.hasHumanApproval"
+                v-if="task.requireApproval"
                 class="text-xs text-blue-700 px-2 py-0.5 rounded-full bg-blue-100 dark:text-blue-300 dark:bg-blue-900/30"
               >
-                Human Approval
+                Approval Required
               </span>
               <span
                 v-if="task.maxIterations"
                 class="text-xs text-gray-600 px-2 py-0.5 rounded-full bg-gray-100 dark:text-gray-300 dark:bg-gray-800"
               >
                 Max {{ task.maxIterations }}
+              </span>
+              <span
+                v-if="task.acceptance?.commands?.length"
+                class="text-xs text-purple-700 px-2 py-0.5 rounded-full bg-purple-100 dark:text-purple-300 dark:bg-purple-900/30"
+              >
+                {{ task.acceptance.commands.length }} acceptance command{{ task.acceptance.commands.length > 1 ? 's' : '' }}
               </span>
             </div>
           </div>
@@ -404,19 +642,34 @@ async function copyUrl() {
           <div class="text-sm text-gray-600 mt-2 dark:text-gray-300">
             Base branch: <code>{{ task.baseBranch || 'repo default' }}</code>
           </div>
-          <div class="text-xs text-gray-500 mt-2 dark:text-gray-400">
+          <div v-if="getLatestTaskRun(task.path)" class="text-xs text-gray-500 mt-2 dark:text-gray-400">
+            Last run:
+            <NuxtLink
+              :to="`/tasks/${getLatestTaskRun(task.path)!.id}`"
+              class="text-teal-600 hover:underline"
+            >
+              {{ getLatestTaskRun(task.path)!.status }}
+            </NuxtLink>
+          </div>
+          <div v-if="task.nodeCount || task.edgeCount" class="text-xs text-gray-500 mt-2 dark:text-gray-400">
             Nodes: {{ task.nodeCount }} · Edges: {{ task.edgeCount }}
           </div>
           <div v-if="task.roles.length" class="text-xs text-gray-500 mt-2 dark:text-gray-400">
             Roles: {{ task.roles.join(', ') }}
           </div>
-          <div v-if="task.valid" class="mt-3">
+          <div v-if="task.valid" class="mt-3 flex flex-wrap gap-2 items-center">
             <ActionButton
               label="Start Run"
               icon="i-carbon-play"
               :loading="aiStartingTaskPath === task.path"
               :disabled="!canStartAiTask || aiStartingTaskPath !== null"
-              @click="handleStartAiTask(task.path)"
+              @click="promptStartAiTask(task.path)"
+            />
+            <ActionButton
+              label="Delete"
+              icon="i-carbon-trash-can"
+              variant="danger"
+              @click="confirmDeleteTask(task.path)"
             />
           </div>
           <div v-if="task.parseError" class="text-xs text-red-600 mt-2 dark:text-red-400">
@@ -458,6 +711,54 @@ async function copyUrl() {
         <CommitLog :commits="commits" :loading="logLoading" />
       </div>
     </div>
+
+    <!-- Danger Zone -->
+    <div class="mt-10 p-4 border border-red-200 rounded-lg dark:border-red-900/50">
+      <h3 class="text-sm text-red-700 font-600 mb-2 dark:text-red-400">
+        Danger Zone
+      </h3>
+      <p class="text-sm text-gray-600 mb-3 dark:text-gray-400">
+        Once you delete a repository, there is no going back. Please be certain.
+      </p>
+      <ActionButton
+        label="Delete Repository"
+        icon="i-carbon-trash-can"
+        variant="danger"
+        @click="showDeleteConfirm = true"
+      />
+    </div>
+
+    <!-- Restart Confirmation -->
+    <ModalDialog v-model="showRestartConfirm" title="Start Task Again">
+      <p>
+        This task has been run before. Are you sure you want to start it again?
+      </p>
+      <template #actions>
+        <ActionButton
+          label="Start"
+          icon="i-carbon-play"
+          @click="doStartAiTask(pendingStartTaskPath!)"
+        />
+      </template>
+    </ModalDialog>
+
+    <!-- Delete Task Confirmation -->
+    <ModalDialog v-model="showDeleteTaskConfirm" title="Delete Task">
+      <p>
+        Are you sure you want to delete <strong>{{ taskToDelete }}</strong>?
+      </p>
+      <p class="text-sm text-red-500 mt-2">
+        This action cannot be undone.
+      </p>
+      <template #actions>
+        <ActionButton
+          label="Delete"
+          icon="i-carbon-trash-can"
+          variant="danger"
+          @click="handleDeleteTask"
+        />
+      </template>
+    </ModalDialog>
 
     <!-- Delete Confirmation -->
     <ModalDialog v-model="showDeleteConfirm" title="Delete Repository">

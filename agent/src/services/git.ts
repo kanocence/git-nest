@@ -1,7 +1,7 @@
 import type { Config, RepoLock, WorkspaceInfo, WorkspaceSnapshot } from '../types'
 import { execFileSync } from 'node:child_process'
 import crypto from 'node:crypto'
-import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { AppError } from '../utils/errors'
@@ -25,6 +25,7 @@ export function workspacePath(config: Config, repo: string): string {
 
 interface RunGitOptions {
   cwd?: string
+  env?: NodeJS.ProcessEnv
   timeoutMs?: number
 }
 
@@ -46,6 +47,7 @@ function runGit(args: string[], options: RunGitOptions = {}): string {
   try {
     return execFileSync(invocation.command, invocation.args, {
       cwd: options.cwd,
+      env: options.env ? { ...process.env, ...options.env } : process.env,
       timeout: options.timeoutMs,
       encoding: 'utf8',
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -72,6 +74,7 @@ function runProgram(command: string, args: string[] = [], options: RunGitOptions
   try {
     const stdout = execFileSync(command, args, {
       cwd: options.cwd,
+      env: options.env ? { ...process.env, ...options.env } : process.env,
       timeout: options.timeoutMs,
       encoding: 'utf8',
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -140,6 +143,114 @@ export function readTaskFile(config: Config, repo: string, ref: string, filePath
     'show',
     `${ref}:${filePath}`,
   ], { timeoutMs: config.gitTimeoutMs })
+}
+
+function validateTaskFilePath(filePath: string): string {
+  const normalized = filePath.replace(/\\/g, '/')
+  const parts = normalized.split('/')
+  const basename = path.posix.basename(normalized)
+
+  if (normalized !== filePath || path.posix.isAbsolute(normalized) || parts.includes('') || parts.includes('..')) {
+    throw new AppError(400, 'INVALID_TASK_PATH', 'Task file path is invalid')
+  }
+  if (!normalized.startsWith('.git-nest/tasks/')) {
+    throw new AppError(400, 'INVALID_TASK_PATH', 'Task file must be under .git-nest/tasks/')
+  }
+  if (!basename.endsWith('.yaml') && !basename.endsWith('.yml')) {
+    throw new AppError(400, 'INVALID_TASK_PATH', 'Task file must have .yaml or .yml extension')
+  }
+
+  return normalized
+}
+
+function validateWritableBranch(config: Config, repo: string, ref: string): string {
+  const barePath = ensureRepoExists(config, repo)
+  const branch = ref.trim()
+  if (!branch || branch === 'HEAD') {
+    throw new AppError(400, 'INVALID_REF', 'A writable branch name is required')
+  }
+
+  const refCheck = runProgram('git', ['--git-dir', barePath, 'check-ref-format', '--branch', branch], { timeoutMs: config.gitTimeoutMs })
+  if (!refCheck.ok) {
+    throw new AppError(400, 'INVALID_REF', 'Branch name is invalid', { detail: refCheck.output })
+  }
+
+  const exists = runProgram('git', ['--git-dir', barePath, 'rev-parse', '--verify', `refs/heads/${branch}^{commit}`], { timeoutMs: config.gitTimeoutMs })
+  if (!exists.ok) {
+    throw new AppError(404, 'REF_NOT_FOUND', 'Branch was not found in repository', { ref: branch })
+  }
+
+  return branch
+}
+
+function taskCommitEnv(indexPath: string): NodeJS.ProcessEnv {
+  return {
+    GIT_AUTHOR_NAME: 'Git Nest',
+    GIT_AUTHOR_EMAIL: 'git-nest@local',
+    GIT_COMMITTER_NAME: 'Git Nest',
+    GIT_COMMITTER_EMAIL: 'git-nest@local',
+    GIT_INDEX_FILE: indexPath,
+  }
+}
+
+function commitTaskTree(
+  config: Config,
+  repo: string,
+  ref: string,
+  message: string,
+  updateIndex: (barePath: string, env: NodeJS.ProcessEnv) => void,
+): void {
+  const barePath = ensureRepoExists(config, repo)
+  const branch = validateWritableBranch(config, repo, ref)
+  const oldCommit = runGit(['--git-dir', barePath, 'rev-parse', `refs/heads/${branch}`], { timeoutMs: config.gitTimeoutMs })
+  const oldTree = runGit(['--git-dir', barePath, 'rev-parse', `${oldCommit}^{tree}`], { timeoutMs: config.gitTimeoutMs })
+  const tempDir = mkdtempSync(path.join(os.tmpdir(), 'git-nest-index-'))
+  const env = taskCommitEnv(path.join(tempDir, 'index'))
+
+  try {
+    runGit(['--git-dir', barePath, 'read-tree', oldCommit], { env, timeoutMs: config.gitTimeoutMs })
+    updateIndex(barePath, env)
+
+    const newTree = runGit(['--git-dir', barePath, 'write-tree'], { env, timeoutMs: config.gitTimeoutMs })
+    if (newTree === oldTree)
+      return
+
+    const newCommit = runGit(['--git-dir', barePath, 'commit-tree', newTree, '-p', oldCommit, '-m', message], { env, timeoutMs: config.gitTimeoutMs })
+    runGit(['--git-dir', barePath, 'update-ref', `refs/heads/${branch}`, newCommit, oldCommit], { timeoutMs: config.gitTimeoutMs })
+  }
+  finally {
+    rmSync(tempDir, { recursive: true, force: true })
+  }
+}
+
+export function writeTaskFile(config: Config, repo: string, ref: string, filePath: string, content: string): void {
+  const taskPath = validateTaskFilePath(filePath)
+  const basename = path.posix.basename(taskPath)
+
+  commitTaskTree(config, repo, ref, `Add/update task file ${basename}`, (barePath, env) => {
+    const hash = execFileSync('git', ['--git-dir', barePath, 'hash-object', '-w', '--stdin'], {
+      input: content,
+      encoding: 'utf8',
+      env: { ...process.env, ...env },
+      timeout: config.gitTimeoutMs,
+      windowsHide: true,
+    }).trim()
+
+    runGit(['--git-dir', barePath, 'update-index', '--add', '--cacheinfo', '100644', hash, taskPath], { env, timeoutMs: config.gitTimeoutMs })
+  })
+}
+
+export function deleteTaskFile(config: Config, repo: string, ref: string, filePath: string): void {
+  const taskPath = validateTaskFilePath(filePath)
+  const barePath = ensureRepoExists(config, repo)
+  const exists = runProgram('git', ['--git-dir', barePath, 'cat-file', '-e', `${ref}:${taskPath}`], { timeoutMs: config.gitTimeoutMs })
+  if (!exists.ok) {
+    throw new AppError(404, 'TASK_NOT_FOUND', 'Task file was not found in repository', { ref, filePath: taskPath })
+  }
+
+  commitTaskTree(config, repo, ref, `Delete task file ${path.posix.basename(taskPath)}`, (barePath, env) => {
+    runGit(['--git-dir', barePath, 'update-index', '--force-remove', taskPath], { env, timeoutMs: config.gitTimeoutMs })
+  })
 }
 
 export function getWorkspaceInfo(config: Config, repo: string, lock: RepoLock | null = null): WorkspaceInfo {

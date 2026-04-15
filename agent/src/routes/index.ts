@@ -6,6 +6,7 @@ import type { EventBus } from '../utils/events'
 import {
   cleanupRunWorkspace,
   createRunId,
+  deleteTaskFile,
   ensureRunWorkspace,
   getDefaultRef,
   getRunWorkspacePath,
@@ -13,6 +14,7 @@ import {
   listTaskFiles,
   readTaskFile,
   validateRepoName,
+  writeTaskFile,
 } from '../services/git'
 import { parseTaskDefinitionV2, toTaskSummaryV2 } from '../services/tasks'
 import { AppError } from '../utils/errors'
@@ -88,6 +90,42 @@ export function setupRoutes(
     })
 
     return c.json({ repo, ref, tasks, total: tasks.length })
+  })
+
+  // 上传任务文件
+  app.post('/api/repos/:repo/tasks/upload', async (c) => {
+    const repo = validateRepoName(c.req.param('repo'))
+    const body = await c.req.json() as { filePath?: string, content?: string, ref?: string }
+    const filePath = typeof body.filePath === 'string' ? body.filePath.trim() : ''
+    const content = typeof body.content === 'string' ? body.content : ''
+    const ref = typeof body.ref === 'string' && body.ref.trim()
+      ? body.ref.trim()
+      : getDefaultRef(config, repo)
+
+    if (!filePath) {
+      throw new AppError(400, 'TASK_PATH_REQUIRED', 'filePath is required')
+    }
+
+    writeTaskFile(config, repo, ref, filePath, content)
+    return c.json({ repo, ref, filePath, message: 'Task file uploaded' })
+  })
+
+  // 删除任务文件
+  app.delete('/api/repos/:repo/tasks/delete', async (c) => {
+    const repo = validateRepoName(c.req.param('repo'))
+    const query = c.req.query('filePath')
+    const filePath = typeof query === 'string' ? query.trim() : ''
+    const refQuery = c.req.query('ref')
+    const ref = typeof refQuery === 'string' && refQuery.trim()
+      ? refQuery.trim()
+      : getDefaultRef(config, repo)
+
+    if (!filePath) {
+      throw new AppError(400, 'TASK_PATH_REQUIRED', 'filePath is required')
+    }
+
+    deleteTaskFile(config, repo, ref, filePath)
+    return c.json({ repo, ref, filePath, message: 'Task file deleted' })
   })
 
   // Workspace state
