@@ -3,7 +3,7 @@ FROM node:24-bookworm-slim
 ARG GO_TARBALL_URL=https://go.dev/dl/go1.24.13.linux-amd64.tar.gz
 
 RUN apt-get update -qq && \
-    apt-get install -y --no-install-recommends ca-certificates git python3 make g++ ripgrep curl && \
+    apt-get install -y --no-install-recommends ca-certificates git python3 make g++ ripgrep curl bzip2 && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
