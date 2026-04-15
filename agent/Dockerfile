@@ -18,11 +18,20 @@ RUN curl -fsSL "$GO_TARBALL_URL" -o /tmp/go.tar.gz && \
     rm /tmp/go.tar.gz
 ENV PATH=$PATH:/usr/local/go/bin
 
-# install Goose CLI
-ENV PATH=/root/.local/bin:$PATH
-RUN curl -fsSL https://github.com/aaif-goose/goose/releases/download/stable/download_cli.sh | bash && \
-    install -m 0755 /root/.local/bin/goose /usr/local/bin/goose && \
-    goose --version
+# install Goose CLI (non-interactive; avoid goose-configure during docker build)
+RUN set -eux; \
+    curl -fsSL \
+      -o /tmp/goose.tar.bz2 \
+      https://github.com/aaif-goose/goose/releases/download/stable/goose-x86_64-unknown-linux-gnu.tar.bz2; \
+    tar -xjf /tmp/goose.tar.bz2 -C /usr/local/bin --no-same-owner; \
+    rm -f /tmp/goose.tar.bz2; \
+    if [ ! -f /usr/local/bin/goose ]; then \
+      goose_path="$(find /usr/local/bin -maxdepth 3 -type f -name goose -print -quit)"; \
+      test -n "$goose_path"; \
+      mv "$goose_path" /usr/local/bin/goose; \
+    fi; \
+    chmod 0755 /usr/local/bin/goose; \
+    /usr/local/bin/goose --version
 
 # install Goose CLI from local file
 # COPY ./goose /usr/local/bin/goose
