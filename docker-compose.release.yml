@@ -1,0 +1,12 @@
+services:
+  nuxt-app:
+    pull_policy: always
+
+  git-runner:
+    pull_policy: always
+
+  agent:
+    pull_policy: always
+
+  code-server:
+    pull_policy: always

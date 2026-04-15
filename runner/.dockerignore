@@ -1,0 +1,4 @@
+git-runner
+*.test
+coverage
+*.log

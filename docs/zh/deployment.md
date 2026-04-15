@@ -2,74 +2,77 @@
 
 > 面向服务器部署和日常运维，覆盖 Web、`git-runner`、`agent`、`code-server` 四个服务。
 
-## 1. 服务器准备
+## 1. 推荐部署方式：GHCR 预构建镜像
 
-### 1.1 创建数据目录
+只部署预构建镜像时，不需要 clone 整个项目。最简单的方式是使用一键部署脚本：
 
 ```bash
-mkdir -p ./data/git ./data/workspace ./data/agent-state ./data/backups
+curl -fsSL https://raw.githubusercontent.com/kanocence/git-nest/dev/scripts/deploy.sh | sh
 ```
 
-目录说明：
+脚本会自动完成以下步骤：
 
-- `./data/git`：bare 仓库目录
-- `./data/workspace`：共享工作区，人工与 AI 共用
-- `./data/agent-state`：AI 运行状态目录，包含 SQLite 数据库
-- `./data/backups`：备份目录
+1. 检查 `docker`、`curl` 依赖
+2. 下载 `docker-compose.yml`、`docker-compose.release.yml`、`.env.example`、`scripts/init-host.sh`
+3. 生成 `.env`（若不存在）并检查关键配置项
+4. 执行 `init-host.sh` 初始化数据目录
+5. 拉取镜像并启动服务
 
-### 1.2 权限建议
+首次运行若提示修改 `.env`，编辑后重新执行该脚本即可。
 
-如果宿主机需要通过固定 UID/GID 运行容器，建议提前让这些目录对对应用户可写。
+如果希望手动执行，服务器需要 4 个文件：
+
+- `docker-compose.yml`
+- `docker-compose.release.yml`
+- `.env`
+- `scripts/init-host.sh`
+
+其中 `docker-compose.yml` 定义服务，`docker-compose.release.yml` 让 Compose 优先拉取 GHCR 镜像，`.env.example` 是配置模板，`scripts/init-host.sh` 只负责初始化数据目录。
+
+### 1.1 手动准备文件
 
 ```bash
-chown -R 1000:1000 ./data
-chmod -R g+rw ./data
-```
+mkdir -p git-nest/scripts
+cd git-nest
 
-如果你使用单独的 `git` 用户，也可以把目录所有者设为该用户，并让 `.env` 中的 `PUID`/`PGID` 与之保持一致。
+curl -fsSLO https://raw.githubusercontent.com/kanocence/git-nest/main/docker-compose.yml
+curl -fsSLO https://raw.githubusercontent.com/kanocence/git-nest/main/docker-compose.release.yml
+curl -fsSLO https://raw.githubusercontent.com/kanocence/git-nest/main/.env.example
+curl -fsSL -o scripts/init-host.sh https://raw.githubusercontent.com/kanocence/git-nest/main/scripts/init-host.sh
+chmod +x scripts/init-host.sh
 
-## 2. 环境变量
-
-复制模板：
-
-```bash
 cp .env.example .env
 ```
 
-关键变量如下：
+已经 clone 了仓库时，直接使用仓库内的这些文件即可。
 
-| 变量 | 说明 |
-|------|------|
-| `PUID` / `PGID` | `git-runner` 和 `code-server` 访问数据目录时使用的 UID/GID |
-| `GIT_RUNNER_SECRET` | Nuxt 访问 `git-runner` 的共享密钥 |
-| `AGENT_SECRET` | Nuxt 访问 `agent` 的共享密钥 |
-| `WEB_PASSWORD` | Web 登录密码，可留空 |
-| `GIT_DATA_DIR` | bare 仓库目录 |
-| `GIT_WORKSPACE_DIR` | 共享工作区目录 |
-| `AGENT_STATE_DIR` | AI 状态目录，默认 `./data/agent-state` |
-| `AGENT_EXECUTOR_MAX_TURNS` | 单任务最大模型交互轮数 |
-| `AGENT_EXECUTOR_TIMEOUT_MS` | 执行器超时（毫秒） |
-| `OPENAI_API_KEY` / `OPENAI_BASE_URL` | OpenAI-compatible 模型配置 |
-| `GOOSE_PROVIDER` / `GOOSE_MODEL` | Goose CLI 使用的 provider 和模型 |
-| `COMMAND_TIMEOUT_MS` | agent 命令超时 |
-| `AGENT_GIT_USER_NAME` / `AGENT_GIT_USER_EMAIL` | agent 自动提交身份 |
-| `BACKUP_DIR` | 备份目录 |
-| `WEB_PORT` | Web 对外端口 |
-| `CODE_SERVER_PORT` | `code-server` 对外端口 |
-| `CODE_SERVER_URL` | Web 页面的 “Open in Editor” 跳转地址 |
-| `NUXT_PUBLIC_SERVER_HOST` / `SSH_HOST` / `SSH_PORT` / `SSH_GIT_PATH` | SSH Clone URL 展示相关配置 |
+### 1.2 修改 .env
 
-建议：
+部署前重点修改这些值：
 
-- `GIT_RUNNER_SECRET` 和 `AGENT_SECRET` 都使用随机字符串
-- 生产环境不要留空 `WEB_PASSWORD`
-- `AGENT_STATE_DIR` 不要和 `workspace` 混用
-- 配置 Goose CLI 所需的模型环境变量后再运行 agent
+- `PUID` / `PGID`：改为宿主机上负责读写数据目录的用户，例如 `id git` 查到的 UID/GID。
+- `GIT_RUNNER_SECRET` / `AGENT_SECRET`：改为随机字符串，例如 `openssl rand -hex 32`。
+- `WEB_PASSWORD`：生产环境建议设置。
+- `GIT_DATA_DIR` / `GIT_WORKSPACE_DIR` / `AGENT_STATE_DIR` / `BACKUP_DIR`：数据目录，默认使用当前目录下的 `./data/...`。
+- `SSH_HOST` / `SSH_PORT` / `SSH_GIT_PATH`：决定 Web 页面展示的 SSH clone 地址。
+- `CODE_SERVER_URL`：决定 Web 页面 “Open in Editor” 跳转地址。
+- `OPENAI_API_KEY` / `OPENAI_BASE_URL` / `GOOSE_PROVIDER` / `GOOSE_MODEL`：按实际模型服务填写。
+- `GIT_NEST_*_IMAGE`：默认使用官方 GHCR 镜像；fork 或自建镜像时把 `kanocence` 改为自己的 GitHub 用户名或组织名。
 
-## 3. 启动服务
+如果镜像包是 private，需要先登录 GHCR：
 
 ```bash
-docker compose up -d
+docker login ghcr.io
+```
+
+完整配置以 `.env.example` 为准。
+
+### 1.3 手动启动
+
+```bash
+sh scripts/init-host.sh
+docker compose -f docker-compose.yml -f docker-compose.release.yml pull
+docker compose -f docker-compose.yml -f docker-compose.release.yml up -d --no-build
 docker compose ps
 ```
 
@@ -80,24 +83,71 @@ docker compose ps
 - `git-nest-agent`
 - `git-nest-editor`
 
-其中 `git-runner` 与 `agent` 都带有健康检查。
+后续升级同样执行：
 
-## 4. 健康检查与日志
+```bash
+docker compose -f docker-compose.yml -f docker-compose.release.yml pull
+docker compose -f docker-compose.yml -f docker-compose.release.yml up -d --no-build
+```
 
-### 4.1 Web
+## 2. 自建镜像与开发部署
+
+自建镜像或本地开发时再 clone 仓库。
+
+```bash
+git clone <repo-url> git-nest
+cd git-nest
+cp .env.example .env
+```
+
+项目内置 GitHub Actions 工作流 `.github/workflows/build-images.yml`，会构建并推送以下镜像到 GHCR：
+
+- `ghcr.io/<owner>/git-nest-web`
+- `ghcr.io/<owner>/git-nest-runner`
+- `ghcr.io/<owner>/git-nest-agent`
+- `ghcr.io/<owner>/git-nest-code-server`
+
+触发条件：
+
+- push 到 `main`
+- push `v*` tag
+- 手动 `workflow_dispatch`
+
+构建缓存使用 Docker BuildKit 的 GitHub Actions cache，每个镜像独立 scope，避免 Nuxt、Agent、Runner 缓存互相污染。默认只构建 `linux/amd64`。`agent` 镜像当前下载的是 amd64 Go tarball，启用 arm64/multi-arch 前需要先改造 `agent/Dockerfile` 的 Go 下载逻辑。
+
+如果不使用 GitHub Actions，也可以在服务器或开发机本地构建镜像。此时可以把 `.env` 中的 `GIT_NEST_*_IMAGE` 改成本地 tag，或删除这些变量使用 `docker-compose.yml` 中的默认 fallback。
+
+```env
+GIT_NEST_WEB_IMAGE=git-nest-web:local
+GIT_NEST_RUNNER_IMAGE=git-nest-runner:local
+GIT_NEST_AGENT_IMAGE=git-nest-agent:local
+GIT_NEST_CODE_SERVER_IMAGE=git-nest-code-server:local
+```
+
+启动：
+
+```bash
+sh scripts/init-host.sh
+docker compose up -d --build
+docker compose ps
+```
+
+## 3. 健康检查与日志
+
+### 3.1 Web
 
 ```bash
 curl http://localhost:${WEB_PORT:-3000}
 ```
 
-### 4.2 git-runner
+### 3.2 git-runner
 
 ```bash
 docker compose ps git-runner
 docker compose logs -f git-runner
 ```
 
-### 4.3 agent
+### 3.3 agent
 
 ```bash
 docker compose ps agent
@@ -106,14 +156,14 @@ docker compose logs -f agent
 
 `agent` 容器内有 `/health` 检查，Compose 会直接用它判断服务是否就绪。
 
-### 4.4 code-server
+### 3.4 code-server
 
 ```bash
 docker compose ps code-server
 docker compose logs -f code-server
 ```
 
-## 5. AI 相关目录与状态文件
+## 4. AI 相关目录与状态文件
 
 `AGENT_STATE_DIR` 目前至少会包含：
 
@@ -124,7 +174,7 @@ agent-state/
 
 当前已经会在该目录下继续保存 run 级事件与模型回合产物。
 
-## 6. 共享 Workspace 运维约束
+## 5. 共享 Workspace 运维约束
 
 当前 AI 方案不是独立沙箱，而是共享 `GIT_WORKSPACE_DIR`：
 
@@ -138,8 +188,9 @@ agent-state/
 - 启动任务前，`/workspace/<repo>` 必须是干净工作区
 - AI run 运行期间，不要人工修改同一仓库目录
 - 任务完成或取消后，目录可能仍停留在任务分支，人工审查前先确认当前分支
+- `agent`、`git-runner`、`code-server` 都应使用同一组 `PUID` / `PGID` 访问共享目录
 
-## 7. 升级与重启行为
+## 6. 升级与重启行为
 
 `agent` 在启动时会扫描历史锁和 runs：
 
@@ -149,7 +200,7 @@ agent-state/
 
 这能避免容器异常退出后仓库永久处于占用状态。
 
-## 8. AI 功能边界
+## 7. AI 功能边界
 
 当前版本已经实现：
 
@@ -167,7 +218,7 @@ agent-state/
 - webhook 通知（计划功能，当前仅保留配置入口）
 - webhook 通知发送与前端展示
 
-## 9. 常用排障命令
+## 8. 常用排障命令
 
 ```bash
 docker compose ps
@@ -184,7 +235,7 @@ docker compose logs -f code-server
 du -sh ./data/git ./data/workspace ./data/agent-state ./data/backups
 ```
 
-## 10. 相关文档
+## 9. 相关文档
 
 - [user-guide.md](user-guide.md)
 - [ai-agent.md](ai-agent.md)

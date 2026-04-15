@@ -1,6 +1,7 @@
 services:
   # Nuxt 4 Web 界面
   nuxt-app:
+    image: ${GIT_NEST_WEB_IMAGE:-git-nest-web:local}
     build: ./web
     container_name: git-nest-web
     restart: unless-stopped
@@ -32,6 +33,7 @@ services:
 
   # Go git-runner sidecar
   git-runner:
+    image: ${GIT_NEST_RUNNER_IMAGE:-git-nest-runner:local}
     build: ./runner
     container_name: git-nest-runner
     restart: unless-stopped
@@ -64,14 +66,19 @@ services:
 
   # agent orchestrator
   agent:
+    image: ${GIT_NEST_AGENT_IMAGE:-git-nest-agent:local}
     build: ./agent
     container_name: git-nest-agent
     restart: unless-stopped
+    user: "${PUID:-1000}:${PGID:-1000}"
     environment:
       - API_SECRET=${AGENT_SECRET}
       - GIT_DATA_DIR=/data/git
       - GIT_WORKSPACE_DIR=/data/workspace
       - AGENT_STATE_DIR=/data/agent-state
+      - HOME=/data/agent-state/home
+      - GOOSE_HOME=/data/agent-state/home/.goose
+      - XDG_CACHE_HOME=/data/agent-state/cache
       # 执行器配置：goose
       - AGENT_EXECUTOR_MAX_TURNS=${AGENT_EXECUTOR_MAX_TURNS:-30}
       - AGENT_EXECUTOR_TIMEOUT_MS=${AGENT_EXECUTOR_TIMEOUT_MS:-1800000}
@@ -116,6 +123,7 @@ services:
 
   # code-server 在线编辑器
   code-server:
+    image: ${GIT_NEST_CODE_SERVER_IMAGE:-git-nest-code-server:local}
     build: ./code-server
     container_name: git-nest-editor
     restart: unless-stopped

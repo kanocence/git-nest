@@ -1,0 +1,9 @@
+node_modules
+.nuxt
+.output
+dist
+coverage
+.env
+*.log
+npm-debug.log*
+pnpm-debug.log*
