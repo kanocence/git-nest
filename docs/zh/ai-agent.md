@@ -74,6 +74,7 @@ queued
 preparing
 running
 waiting_approval
+waiting_continuation
 completed
 failed
 cancelled
@@ -88,6 +89,7 @@ system_interrupted
 - `failed`
 - `cancelled`
 - `system_interrupted`
+- `waiting_continuation`
 
 说明：
 
@@ -203,6 +205,37 @@ edges:
 - `human_approval` 节点会进入 `waiting_approval`
 - 审批状态已持久化到 SQLite，`resume` 接口在 agent 重启后仍可恢复
 
+### 5.1 执行预算与长任务
+
+每个任务都应该给 executor 留出明确预算。默认配置适合普通任务：
+
+```yaml
+executor:
+  max_turns: 30
+  timeout: 1800000 # 30 分钟
+  max_continuations: 2
+```
+
+复杂任务建议显式配置更长时间。单个任务推荐上限可以从 3 小时开始：
+
+```yaml
+executor:
+  max_turns: 80
+  timeout: 10800000 # 3 小时
+  max_continuations: 2
+```
+
+如果任务会在人睡觉或离开电脑时运行，8 小时也可以是合理的无人值守预算：
+
+```yaml
+executor:
+  max_turns: 160
+  timeout: 28800000 # 8 小时
+  max_continuations: 1
+```
+
+不要把长任务等同于无限任务。配置预算时需要结合 AI plan 的拆分粒度、模型 token 窗口、API 成本、仓库锁占用时间和验收命令耗时来决定。预算耗尽或疑似达到轮次上限时，run 会进入 `waiting_continuation`，用户可以在详情页选择 Continue 或 Stop。
+
 ## 6. 当前 API
 
 ### 6.1 Nuxt 对外代理
@@ -214,6 +247,8 @@ POST /api/repos/:repo/ai/tasks/start
 GET  /api/ai/runs
 GET  /api/ai/runs/:id
 POST /api/ai/runs/:id/resume
+POST /api/ai/runs/:id/continue
+POST /api/ai/runs/:id/stop
 POST /api/ai/runs/:id/release
 GET  /api/ai/events
 ```
@@ -228,6 +263,8 @@ POST /api/repos/:repo/tasks/start
 GET  /api/runs
 GET  /api/runs/:id
 POST /api/runs/:id/resume
+POST /api/runs/:id/continue
+POST /api/runs/:id/stop
 POST /api/runs/:id/release
 GET  /api/events
 ```
@@ -242,6 +279,10 @@ GET  /api/events
   准备 workspace、切任务分支、加锁并自动启动后台执行
 - `POST /api/ai/runs/:id/resume`
   恢复 `waiting_approval` 状态的 run；审批决策已持久化到 SQLite，agent 重启后可自动恢复
+- `POST /api/ai/runs/:id/continue`
+  恢复 `waiting_continuation` 状态的 run；agent 会在同一 workspace 上重新启动 executor，并提示它继续前一次未完成工作
+- `POST /api/ai/runs/:id/stop`
+  停止 `waiting_continuation` 状态的 run，释放仓库锁
 - `POST /api/ai/runs/:id/release`
   释放活跃 run：对 `running` 状态发送协作式取消信号；对 `queued`/`preparing` 直接释放仓库锁并将 run 置为 `cancelled`
 
@@ -261,6 +302,7 @@ GET  /api/events
 - 查看 runs 列表与基本信息
 - 查看 run 详情和 SSE 实时事件流
 - 对 `waiting_approval` run 执行批准/驳回
+- 对 `waiting_continuation` run 执行继续/停止
 - 对 `system_interrupted` run 执行重试
 - 对 `running`/`queued`/`preparing` run 执行释放（Release）
 
@@ -287,7 +329,7 @@ ${AGENT_STATE_DIR}/state.sqlite
 - 孤儿锁直接清理
 - 终态 run 的残留锁会清理
 - `queued` 保留并继续调度
-- `waiting_approval`：若 SQLite 中存在审批状态则保留，否则标为 `system_interrupted`
+- `waiting_approval` / `waiting_continuation`：若 SQLite 中存在审批状态则保留，否则标为 `system_interrupted`
 - 其他中间态 run 标为 `system_interrupted`
 
 ## 9. 已知限制

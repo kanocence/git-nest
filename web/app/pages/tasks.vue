@@ -53,6 +53,7 @@ function getStatusClass(status: string) {
     case 'preparing':
       return 'text-blue-700 bg-blue-100 dark:text-blue-300 dark:bg-blue-900/30'
     case 'waiting_approval':
+    case 'waiting_continuation':
       return 'text-amber-700 bg-amber-100 dark:text-amber-300 dark:bg-amber-900/30'
     case 'cancelled':
     default:

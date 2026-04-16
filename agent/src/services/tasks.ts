@@ -283,6 +283,7 @@ export function toTaskSummary(definition: TaskDefinition): TaskSummary {
     hasHumanApproval: definition.hasHumanApproval,
     requireApproval: definition.hasHumanApproval,
     acceptance: null,
+    executor: null,
     roles: definition.roles,
     nodeCount: definition.nodes.length,
     edgeCount: definition.edges.length,
@@ -301,6 +302,7 @@ export function toTaskSummaryV2(definition: TaskDefinitionV2): TaskSummary {
     hasHumanApproval: definition.hasHumanApproval,
     requireApproval: definition.require_approval,
     acceptance: definition.acceptance,
+    executor: definition.executor,
     roles: [], // V2 doesn't have explicit roles
     nodeCount: definition.nodeCount ?? 0,
     edgeCount: definition.edgeCount ?? 0,
@@ -320,6 +322,14 @@ function asPositiveIntWithDefault(value: unknown, defaultValue: number): number 
   if (typeof value === 'string' && DIGITS_ONLY_RE.test(value.trim()))
     return Number.parseInt(value.trim(), 10)
   return defaultValue
+}
+
+function asOptionalPositiveInt(value: unknown): number | undefined {
+  if (typeof value === 'number' && Number.isInteger(value) && value > 0)
+    return value
+  if (typeof value === 'string' && DIGITS_ONLY_RE.test(value.trim()))
+    return Number.parseInt(value.trim(), 10)
+  return undefined
 }
 
 function asBoolean(value: unknown, defaultValue: boolean): boolean {
@@ -420,7 +430,8 @@ export function parseTaskDefinitionV2(content: string, filePath: string): TaskDe
   if (isPlainObject(raw.executor)) {
     const max_turns = asPositiveIntWithDefault(raw.executor.max_turns, 30)
     const execTimeout = asPositiveIntWithDefault(raw.executor.timeout, 1800000)
-    executor = { max_turns, timeout: execTimeout }
+    const max_continuations = asOptionalPositiveInt(raw.executor.max_continuations)
+    executor = { max_turns, timeout: execTimeout, ...(max_continuations ? { max_continuations } : {}) }
   }
 
   // Validation

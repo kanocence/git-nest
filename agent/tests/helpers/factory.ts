@@ -19,6 +19,7 @@ export function createTestConfig(overrides: Partial<Config> = {}): Config {
     webhookMaxRetries: 3,
     executorMaxTurns: 30,
     executorTimeoutMs: 1800000,
+    executorMaxContinuations: 2,
     gooseProvider: 'openai',
     gooseModel: 'gpt-4o-mini',
     ...overrides,

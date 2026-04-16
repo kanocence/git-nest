@@ -42,6 +42,12 @@ export interface AiTaskAcceptanceConfig {
   fail_fast: boolean
 }
 
+export interface AiTaskExecutorConfig {
+  max_turns: number
+  timeout: number
+  max_continuations?: number
+}
+
 export interface AiTaskSummary {
   path: string
   title: string
@@ -50,6 +56,7 @@ export interface AiTaskSummary {
   hasHumanApproval: boolean
   requireApproval: boolean
   acceptance: AiTaskAcceptanceConfig | null
+  executor: AiTaskExecutorConfig | null
   roles: string[]
   nodeCount: number
   edgeCount: number

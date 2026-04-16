@@ -363,6 +363,72 @@ export function setupRoutes(
   })
 
   // 重试运行
+  app.post('/api/runs/:runId/continue', async (c) => {
+    const runId = c.req.param('runId')
+    const run = store.getRun(runId)
+    if (!run) {
+      throw new AppError(404, 'RUN_NOT_FOUND', 'Run not found')
+    }
+
+    if (run.status !== RUN_STATUS.waitingContinuation) {
+      throw new AppError(409, 'RUN_NOT_WAITING_CONTINUATION', 'Run is not waiting for continuation', {
+        runId: run.id,
+        status: run.status,
+      })
+    }
+
+    await withRepoMutex(run.repo, async () => {
+      const existingLock = store.getActiveRepoLock(run.repo)
+      if (existingLock && existingLock.run_id !== run.id) {
+        throw new AppError(409, 'REPO_BUSY', 'Repository is occupied by another active run', {
+          runId: run.id,
+          repo: run.repo,
+          activeRunId: existingLock.run_id,
+        })
+      }
+
+      await runManager.continueRun(run.id, 'continue')
+    })
+
+    return c.json({
+      run: store.getRun(run.id),
+      note: 'Run continuation has been scheduled.',
+    }, 202)
+  })
+
+  app.post('/api/runs/:runId/stop', async (c) => {
+    const runId = c.req.param('runId')
+    const run = store.getRun(runId)
+    if (!run) {
+      throw new AppError(404, 'RUN_NOT_FOUND', 'Run not found')
+    }
+
+    if (run.status !== RUN_STATUS.waitingContinuation) {
+      throw new AppError(409, 'RUN_NOT_WAITING_CONTINUATION', 'Run is not waiting for continuation', {
+        runId: run.id,
+        status: run.status,
+      })
+    }
+
+    await withRepoMutex(run.repo, async () => {
+      const existingLock = store.getActiveRepoLock(run.repo)
+      if (existingLock && existingLock.run_id !== run.id) {
+        throw new AppError(409, 'REPO_BUSY', 'Repository is occupied by another active run', {
+          runId: run.id,
+          repo: run.repo,
+          activeRunId: existingLock.run_id,
+        })
+      }
+
+      await runManager.continueRun(run.id, 'stop')
+    })
+
+    return c.json({
+      run: store.getRun(run.id),
+      note: 'Run has been stopped.',
+    }, 202)
+  })
+
   app.post('/api/runs/:runId/retry', async (c) => {
     const runId = c.req.param('runId')
     const run = store.getRun(runId)
@@ -437,6 +503,7 @@ export function setupRoutes(
       }
 
       store.deleteRepoLock(run.repo)
+      store.deleteApprovalState(run.id)
       store.updateRunStatus(run.id, RUN_STATUS.cancelled)
     })
 

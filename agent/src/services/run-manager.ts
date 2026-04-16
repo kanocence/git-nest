@@ -1,7 +1,7 @@
 import type { DbApi } from '../db'
 import type { Config, RunRecord, RunStatus, TaskDefinitionV2 } from '../types'
 import type { EventBus } from '../utils/events'
-import type { CodingExecutor, CodingExecutorEvent, CodingExecutorInput } from './executors/types'
+import type { CodingExecutor, CodingExecutorEvent, CodingExecutorInput, CodingExecutorResult } from './executors/types'
 import { info, error as logError } from '../logger'
 import { AppError } from '../utils/errors'
 import { RUN_STATUS } from '../utils/status'
@@ -54,9 +54,16 @@ function validateAcceptanceCommand(command: string): CommandValidation {
 export interface RunManager {
   startRun: (runId: string) => Promise<void>
   resumeRun: (runId: string, decision: 'approved' | 'rejected') => Promise<void>
+  continueRun: (runId: string, decision: 'continue' | 'stop') => Promise<void>
   retryRun: (runId: string) => Promise<void>
   cancelRun: (runId: string) => boolean
   resumeQueuedRuns: () => void
+}
+
+interface ContinuationState {
+  continuationsUsed: number
+  reason: string
+  summary: string
 }
 
 interface RunContext {
@@ -64,6 +71,7 @@ interface RunContext {
   task: TaskDefinitionV2
   executor: CodingExecutor
   abortController: AbortController
+  continuation?: ContinuationState
 }
 
 export function createRunManager(
@@ -114,6 +122,111 @@ export function createRunManager(
       lockedAt: store.getActiveRepoLock(run.repo)?.locked_at || run.created_at,
       updatedAt: new Date().toISOString(),
     })
+  }
+
+  function getMaxContinuations(task: TaskDefinitionV2): number {
+    return task.executor?.max_continuations ?? config.executorMaxContinuations
+  }
+
+  function isContinuationEligible(result: CodingExecutorResult): boolean {
+    const summary = result.summary || ''
+    return result.exitCode === 124 || /timeout|timed out|max.?turn|turn.?limit/i.test(summary)
+  }
+
+  function buildExecutorPrompt(task: TaskDefinitionV2, continuation?: ContinuationState): string {
+    const basePrompt = task.description || `Execute task: ${task.title}`
+    if (!continuation)
+      return basePrompt
+
+    return `${basePrompt}
+
+You are continuing a previous attempt for this task.
+Reason: ${continuation.reason}
+Previous summary: ${continuation.summary || 'No summary was provided.'}
+
+Continue from the current workspace state. Inspect existing changes first, do not revert unrelated work, and finish the remaining task as directly as possible.`
+  }
+
+  function parseContinuationState(runId: string, strict: boolean): ContinuationState {
+    const approvalState = store.getApprovalState(runId)
+    if (!approvalState) {
+      if (strict) {
+        throw new AppError(409, 'CONTINUATION_STATE_MISSING', 'Continuation state is missing; retry the run to rebuild continuation context')
+      }
+
+      return { continuationsUsed: 0, reason: 'Continuation state missing', summary: '' }
+    }
+
+    try {
+      const parsed = JSON.parse(approvalState.prior_outputs) as Partial<ContinuationState>
+      const continuationsUsed = parsed.continuationsUsed
+      if (
+        strict
+        && (typeof continuationsUsed !== 'number' || !Number.isInteger(continuationsUsed) || continuationsUsed < 0)
+      ) {
+        throw new AppError(409, 'CONTINUATION_STATE_INVALID', 'Continuation state is invalid; retry the run to rebuild continuation context')
+      }
+
+      return {
+        continuationsUsed: typeof continuationsUsed === 'number' ? continuationsUsed : 0,
+        reason: typeof parsed.reason === 'string' ? parsed.reason : 'Executor budget was exhausted',
+        summary: typeof parsed.summary === 'string' ? parsed.summary : '',
+      }
+    }
+    catch (error) {
+      if (error instanceof AppError)
+        throw error
+
+      if (strict) {
+        throw new AppError(409, 'CONTINUATION_STATE_INVALID', 'Continuation state is invalid; retry the run to rebuild continuation context')
+      }
+
+      return { continuationsUsed: 0, reason: 'Continuation state could not be parsed', summary: '' }
+    }
+  }
+
+  function pauseForContinuation(
+    run: RunRecord,
+    task: TaskDefinitionV2,
+    result: CodingExecutorResult,
+    continuationsUsed: number,
+  ): boolean {
+    const maxContinuations = getMaxContinuations(task)
+    if (continuationsUsed >= maxContinuations)
+      return false
+
+    const reason = result.exitCode === 124 ? 'Executor timeout was reached' : 'Executor turn budget appears to be exhausted'
+    const summary = result.summary || reason
+
+    run = store.updateRunStatus(run.id, RUN_STATUS.waitingContinuation, summary)!
+    updateLock(run, RUN_STATUS.waitingContinuation)
+    store.createApprovalState({
+      runId: run.id,
+      nodeId: 'continuation',
+      role: 'continuation_approval',
+      question: `Continue task "${task.title}" with another executor budget?`,
+      priorOutputs: {
+        continuationsUsed,
+        maxContinuations,
+        reason,
+        summary,
+        exitCode: result.exitCode,
+        rawLogPath: result.rawLogPath,
+      },
+    })
+
+    recordEvent(run, {
+      type: 'run.waiting_continuation',
+      message: 'Executor budget was exhausted; waiting for continue or stop decision',
+      payload: {
+        continuationsUsed,
+        maxContinuations,
+        reason,
+        summary,
+        exitCode: result.exitCode,
+      },
+    })
+    return true
   }
 
   async function runAcceptanceCommands(
@@ -255,7 +368,7 @@ export function createRunManager(
       throw new AppError(500, 'RUN_CONTEXT_LOST', 'Run context was lost')
     }
 
-    const { run: initialRun, task, executor, abortController } = context
+    const { run: initialRun, task, executor, abortController, continuation } = context
     let run = initialRun
 
     // Run-level watchdog: fires 1 min after the executor's own timeout to force-abort
@@ -274,11 +387,15 @@ export function createRunManager(
       updateLock(run, RUN_STATUS.running)
 
       recordEvent(run, {
-        type: isRetry ? 'run.retry' : 'run.started',
-        message: isRetry ? 'Run execution retried' : 'Run execution started',
+        type: continuation ? 'run.continuation_started' : isRetry ? 'run.retry' : 'run.started',
+        message: continuation ? 'Run execution continued with another budget' : isRetry ? 'Run execution retried' : 'Run execution started',
         payload: {
           executor: executor.name,
           task: task.title,
+          maxTurns: task.executor?.max_turns || config.executorMaxTurns,
+          timeoutMs: task.executor?.timeout || config.executorTimeoutMs,
+          continuationsUsed: continuation?.continuationsUsed || 0,
+          maxContinuations: getMaxContinuations(task),
         },
       })
 
@@ -287,7 +404,7 @@ export function createRunManager(
         runId: run.id,
         repo: run.repo,
         workspacePath: getRunWorkspacePath(config, run.repo, run.id),
-        prompt: task.description || `Execute task: ${task.title}`,
+        prompt: buildExecutorPrompt(task, continuation),
         acceptanceCommands: task.acceptance?.commands || [],
         model: {
           provider: config.gooseProvider,
@@ -324,6 +441,10 @@ export function createRunManager(
       })()
 
       if (finalResult.status !== 'completed') {
+        if (isContinuationEligible(finalResult) && pauseForContinuation(run, task, finalResult, continuation?.continuationsUsed || 0)) {
+          return
+        }
+
         const code = finalResult.status === 'cancelled' ? 'RUN_CANCELLED' : 'EXECUTOR_FAILED'
         const statusCode = finalResult.status === 'cancelled' ? 499 : 500
         throw new AppError(statusCode, code, finalResult.summary || `Executor ${finalResult.status}`, {
@@ -582,6 +703,62 @@ export function createRunManager(
     }
   }
 
+  async function continueRun(runId: string, decision: 'continue' | 'stop'): Promise<void> {
+    let run = store.getRun(runId)
+    if (!run) {
+      throw new AppError(404, 'RUN_NOT_FOUND', 'Run not found')
+    }
+
+    if (run.status !== RUN_STATUS.waitingContinuation) {
+      throw new AppError(409, 'RUN_NOT_WAITING_CONTINUATION', 'Run is not waiting for continuation')
+    }
+
+    if (decision === 'continue' && activeRuns.has(runId)) {
+      throw new AppError(409, 'RUN_ALREADY_ACTIVE', 'Run is already being processed')
+    }
+
+    const continuationState = parseContinuationState(runId, decision === 'continue')
+    recordEvent(run, {
+      type: 'run.continuation_decided',
+      message: `Continuation ${decision}`,
+      payload: { decision, ...continuationState },
+    })
+    store.deleteApprovalState(runId)
+
+    if (decision === 'stop') {
+      activeRuns.get(runId)?.abortController.abort()
+      run = store.updateRunStatus(runId, RUN_STATUS.cancelled, 'Stopped by user after executor budget was exhausted')!
+      store.deleteRepoLock(run.repo)
+      recordEvent(run, {
+        type: 'run.continuation_stopped',
+        message: 'Run stopped after executor budget was exhausted',
+      })
+      return
+    }
+
+    const task = loadTaskForRun(run)
+    const nextContinuation: ContinuationState = {
+      ...continuationState,
+      continuationsUsed: continuationState.continuationsUsed + 1,
+    }
+
+    const abortController = new AbortController()
+    run = store.updateRunStatus(runId, RUN_STATUS.running)!
+    updateLock(run, RUN_STATUS.running)
+
+    activeRuns.set(runId, {
+      run,
+      task,
+      executor,
+      abortController,
+      continuation: nextContinuation,
+    })
+
+    processRun(runId).catch((error) => {
+      logError('[run-manager] continuation execution failed', { runId, error })
+    })
+  }
+
   async function retryRun(runId: string): Promise<void> {
     const run = store.getRun(runId)
     if (!run) {
@@ -643,6 +820,7 @@ export function createRunManager(
   return {
     startRun,
     resumeRun,
+    continueRun,
     retryRun,
     cancelRun,
     resumeQueuedRuns,

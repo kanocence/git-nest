@@ -169,6 +169,7 @@ edges:
 在 run 详情页还可以根据状态执行操作：
 
 - `waiting_approval`：Approve / Reject
+- `waiting_continuation`：Continue / Stop
 - `system_interrupted`：Retry
 - `running` / `queued` / `preparing`：Release（取消或解除占用）
 
@@ -179,7 +180,7 @@ edges:
 - 任务发现与 YAML 校验
 - 共享 workspace 状态展示
 - run 列表、详情读取与 SSE 实时事件
-- 后端 `start/release/approve/reject/retry` API
+- 后端 `start/release/approve/reject/continue/stop/retry` API
 - Goose 执行器对接
 - 通过 Goose CLI 调用模型
 - 自动 git commit / push
@@ -202,6 +203,8 @@ POST /api/repos/:repo/ai/tasks/start
 GET  /api/ai/runs
 GET  /api/ai/runs/:id
 POST /api/ai/runs/:id/resume
+POST /api/ai/runs/:id/continue
+POST /api/ai/runs/:id/stop
 POST /api/ai/runs/:id/release
 GET  /api/ai/events
 ```
@@ -210,7 +213,8 @@ GET  /api/ai/events
 
 - `start` 会准备共享 workspace、切任务分支并自动启动后台执行
 - `resume` / `approve` / `reject` 适用于 `waiting_approval` 状态；审批状态已持久化到 SQLite，agent 重启后会自动恢复
-- `release` 适用于所有活跃 run（`running` / `queued` / `preparing`），会根据状态自动发送取消信号或解除仓库锁
+- `continue` / `stop` 适用于 `waiting_continuation` 状态；当 executor 超时或疑似达到轮次上限时，用户可以继续给它一段预算或停止任务
+- `release` 适用于所有活跃 run（`running` / `queued` / `preparing` / `waiting_continuation`），会根据状态自动发送取消信号或解除仓库锁
 - `retry` 适用于 `system_interrupted` 状态的 run
 - 如果 YAML 含有 `require_approval: true`，run 会在验收前进入 `waiting_approval`
 

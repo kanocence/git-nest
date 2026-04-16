@@ -66,22 +66,20 @@ function recoverInterruptedRuns() {
     if (run.status === RUN_STATUS.queued)
       continue
 
-    if (run.status === RUN_STATUS.waitingApproval) {
-      // With persistent checkpoints, waiting_approval runs can be resumed
-      // Keep the lock and status, user can resume via API
+    if (run.status === RUN_STATUS.waitingApproval || run.status === RUN_STATUS.waitingContinuation) {
+      // Approval/continuation states are recoverable when their persisted state exists.
       const approvalState = store.getApprovalState(run.id)
       if (approvalState) {
-        recovered.push({ repo: run.repo, runId: run.id, action: 'waiting_approval_with_state_preserved' })
+        recovered.push({ repo: run.repo, runId: run.id, action: `${run.status}_with_state_preserved` })
       }
       else {
-        // No approval state found, mark as interrupted
         store.updateRunStatus(
           run.id,
           RUN_STATUS.systemInterrupted,
-          'Run was waiting for approval but approval state was lost. Please use retry to restart.',
+          `Run was ${run.status} but persisted state was lost. Please use retry to restart.`,
         )
         store.deleteRepoLock(lock.repo)
-        recovered.push({ repo: run.repo, runId: run.id, action: 'waiting_approval_to_interrupted' })
+        recovered.push({ repo: run.repo, runId: run.id, action: `${run.status}_to_interrupted` })
       }
       continue
     }

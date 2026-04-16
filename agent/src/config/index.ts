@@ -61,6 +61,7 @@ export function loadConfig(): Config {
     // Executor configuration
     executorMaxTurns: envInt('AGENT_EXECUTOR_MAX_TURNS', 30),
     executorTimeoutMs: envInt('AGENT_EXECUTOR_TIMEOUT_MS', 30 * 60 * 1000), // 30 minutes
+    executorMaxContinuations: envInt('AGENT_EXECUTOR_MAX_CONTINUATIONS', 2),
     // Goose model configuration (passed as CLI args and env vars)
     gooseProvider: process.env.GOOSE_PROVIDER || process.env.AGENT_MODEL_PROVIDER || 'openai',
     gooseModel: process.env.GOOSE_MODEL || process.env.AGENT_MODEL || process.env.OPENAI_MODEL || 'gpt-4o-mini',

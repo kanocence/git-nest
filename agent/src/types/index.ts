@@ -16,6 +16,7 @@ export interface Config {
   webhookMaxRetries: number
   executorMaxTurns: number
   executorTimeoutMs: number
+  executorMaxContinuations: number
   gooseProvider: string
   gooseModel: string
 }
@@ -25,6 +26,7 @@ export type RunStatus
     | 'preparing'
     | 'running'
     | 'waiting_approval'
+    | 'waiting_continuation'
     | 'completed'
     | 'failed'
     | 'cancelled'
@@ -111,6 +113,7 @@ export interface TaskSummary {
   hasHumanApproval: boolean
   requireApproval: boolean
   acceptance: TaskAcceptanceConfig | null
+  executor: TaskExecutorConfig | null
   roles: string[]
   nodeCount: number
   edgeCount: number
@@ -128,6 +131,7 @@ export interface TaskAcceptanceConfig {
 export interface TaskExecutorConfig {
   max_turns: number
   timeout: number
+  max_continuations?: number
 }
 
 export interface TaskDefinitionV2 {

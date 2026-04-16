@@ -25,6 +25,7 @@ describe('aPI Routes Integration', () => {
     runManager = {
       startRun: async () => {},
       resumeRun: async () => {},
+      continueRun: async () => {},
       retryRun: async () => {},
       cancelRun: () => true,
       resumeQueuedRuns: () => {},
@@ -203,6 +204,44 @@ describe('aPI Routes Integration', () => {
     })
   })
 
+  describe('pOST /api/runs/:runId/stop', () => {
+    it('should reject stop when another run owns the repo lock', async () => {
+      const now = new Date().toISOString()
+      db.createRun({
+        id: 'test-run-stop-busy',
+        repo: 'test-repo-stop-busy',
+        taskPath: '.git-nest/tasks/test.yaml',
+        taskTitle: 'Test Task',
+        sourceRef: 'main',
+        baseBranch: 'main',
+        taskBranch: 'ai/test-run-stop-busy',
+        status: 'waiting_continuation',
+        workspacePath: '/tmp/test/workspace/test-repo-stop-busy',
+        createdAt: now,
+        updatedAt: now,
+        lastError: null,
+      })
+      db.upsertRepoLock({
+        repo: 'test-repo-stop-busy',
+        runId: 'other-active-run',
+        taskBranch: 'ai/other-active-run',
+        status: 'running',
+        lockedAt: now,
+        updatedAt: now,
+      })
+
+      const res = await app.request('/api/runs/test-run-stop-busy/stop', {
+        method: 'POST',
+      })
+
+      expect(res.status).toBe(409)
+      const json = await res.json()
+      expect(json.code).toBe('REPO_BUSY')
+      expect(db.getRun('test-run-stop-busy')?.status).toBe('waiting_continuation')
+      expect(db.getActiveRepoLock('test-repo-stop-busy')?.run_id).toBe('other-active-run')
+    })
+  })
+
   describe('pOST /api/runs/:runId/release', () => {
     it('should release a running run', async () => {
       const now = new Date().toISOString()
@@ -236,6 +275,48 @@ describe('aPI Routes Integration', () => {
       })
       // Either 202 (cancellation signal) or 200 (released)
       expect([200, 202]).toContain(res.status)
+    })
+
+    it('should clear approval state when releasing a waiting continuation run', async () => {
+      const now = new Date().toISOString()
+      db.createRun({
+        id: 'test-run-release-continuation',
+        repo: 'test-repo-continuation',
+        taskPath: '.git-nest/tasks/test.yaml',
+        taskTitle: 'Test Task',
+        sourceRef: 'main',
+        baseBranch: 'main',
+        taskBranch: 'ai/test-run-release-continuation',
+        status: 'waiting_continuation',
+        workspacePath: '/tmp/test/workspace/test-repo-continuation',
+        createdAt: now,
+        updatedAt: now,
+        lastError: null,
+      })
+      db.upsertRepoLock({
+        repo: 'test-repo-continuation',
+        runId: 'test-run-release-continuation',
+        taskBranch: 'ai/test-run-release-continuation',
+        status: 'waiting_continuation',
+        lockedAt: now,
+        updatedAt: now,
+      })
+      db.createApprovalState({
+        runId: 'test-run-release-continuation',
+        nodeId: 'continuation',
+        role: 'continuation_approval',
+        question: 'Continue?',
+        priorOutputs: { continuationsUsed: 0 },
+      })
+
+      const res = await app.request('/api/runs/test-run-release-continuation/release', {
+        method: 'POST',
+      })
+
+      expect(res.status).toBe(200)
+      expect(db.getRun('test-run-release-continuation')?.status).toBe('cancelled')
+      expect(db.getActiveRepoLock('test-repo-continuation')).toBeNull()
+      expect(db.getApprovalState('test-run-release-continuation')).toBeNull()
     })
   })
 })
