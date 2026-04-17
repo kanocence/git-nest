@@ -5,51 +5,12 @@ import type { CodingExecutor, CodingExecutorEvent, CodingExecutorInput, CodingEx
 import { info, error as logError } from '../logger'
 import { AppError } from '../utils/errors'
 import { RUN_STATUS } from '../utils/status'
+import { validateAcceptanceCommand } from './acceptance'
 import { createExecutor } from './executors'
 import { cleanupRunWorkspace, commitAndPushRunWorkspace, getRunWorkspacePath, hasRunWorkspaceChanges, readTaskFile, runRunWorkspaceCommand } from './git'
 import { parseTaskDefinitionV2 } from './tasks'
 
-// Allowed acceptance command prefixes
-const ALLOWED_COMMAND_PREFIXES = ['npm', 'pnpm', 'yarn', 'node', 'npx']
-const SHELL_META_CHARS = /[;|&$`\n]/
-const WHITESPACE_SPLIT_RE = /\s+/
-
-interface CommandValidation {
-  valid: boolean
-  executable: string
-  args: string[]
-  reason?: string
-}
-
-function validateAcceptanceCommand(command: string): CommandValidation {
-  const trimmed = command.trim()
-
-  // Parse command first (needed for return type)
-  const parts = trimmed.split(WHITESPACE_SPLIT_RE)
-  const executable = parts[0] || ''
-  const args = parts.slice(1)
-
-  // Reject shell metacharacters
-  if (SHELL_META_CHARS.test(trimmed)) {
-    return { valid: false, executable, args, reason: 'Command contains shell metacharacters' }
-  }
-
-  // Reject absolute paths
-  if (trimmed.startsWith('/') || trimmed.startsWith('\\') || trimmed.includes('..')) {
-    return { valid: false, executable, args, reason: 'Absolute paths and parent directory references are not allowed' }
-  }
-
-  // Check if executable is in allowlist
-  const isAllowed = ALLOWED_COMMAND_PREFIXES.some(prefix =>
-    executable === prefix || executable.startsWith(`${prefix}.`),
-  )
-
-  if (!isAllowed) {
-    return { valid: false, executable, args, reason: `Command '${executable}' is not in the allowed list (${ALLOWED_COMMAND_PREFIXES.join(', ')})` }
-  }
-
-  return { valid: true, executable, args }
-}
+const CONTINUATION_ELIGIBLE_SUMMARY_RE = /timeout|timed out|max.?turn|turn.?limit/i
 
 export interface RunManager {
   startRun: (runId: string) => Promise<void>
@@ -130,7 +91,7 @@ export function createRunManager(
 
   function isContinuationEligible(result: CodingExecutorResult): boolean {
     const summary = result.summary || ''
-    return result.exitCode === 124 || /timeout|timed out|max.?turn|turn.?limit/i.test(summary)
+    return result.exitCode === 124 || CONTINUATION_ELIGIBLE_SUMMARY_RE.test(summary)
   }
 
   function buildExecutorPrompt(task: TaskDefinitionV2, continuation?: ContinuationState): string {
@@ -723,9 +684,9 @@ Continue from the current workspace state. Inspect existing changes first, do no
       message: `Continuation ${decision}`,
       payload: { decision, ...continuationState },
     })
-    store.deleteApprovalState(runId)
 
     if (decision === 'stop') {
+      store.deleteApprovalState(runId)
       activeRuns.get(runId)?.abortController.abort()
       run = store.updateRunStatus(runId, RUN_STATUS.cancelled, 'Stopped by user after executor budget was exhausted')!
       store.deleteRepoLock(run.repo)
@@ -753,6 +714,7 @@ Continue from the current workspace state. Inspect existing changes first, do no
       abortController,
       continuation: nextContinuation,
     })
+    store.deleteApprovalState(runId)
 
     processRun(runId).catch((error) => {
       logError('[run-manager] continuation execution failed', { runId, error })

@@ -1,6 +1,6 @@
 import type { TaskDefinition, TaskDefinitionV2 } from '../../../src/types'
 import { describe, expect, it } from 'vitest'
-import { parseTaskDefinition, toTaskSummary, toTaskSummaryV2, tryParseTaskDefinition } from '../../../src/services/tasks'
+import { parseTaskDefinition, parseTaskDefinitionV2, toTaskSummary, toTaskSummaryV2, tryParseTaskDefinition } from '../../../src/services/tasks'
 
 describe('parseTaskDefinition', () => {
   it('should parse valid task definition', () => {
@@ -181,6 +181,161 @@ edges:
     expect(result.valid).toBe(false)
     expect(result.parseError).not.toBeNull()
     expect(result.validationErrors.length).toBeGreaterThan(0)
+  })
+
+  it.each([
+    [''],
+    ['plain scalar'],
+    ['- array item'],
+  ])('should return parse error for malformed task content %#', (yaml) => {
+    const result = tryParseTaskDefinition(yaml, 'bad.yaml')
+
+    expect(result.valid).toBe(false)
+    expect(result.parseError).not.toBeNull()
+    expect(result.validationErrors.length).toBeGreaterThan(0)
+  })
+
+  it('should return validation errors without throwing for semantically invalid content', () => {
+    const result = tryParseTaskDefinition('title: Bad\nnodes: []\nedges: []', 'bad.yaml')
+
+    expect(result.valid).toBe(false)
+    expect(result.parseError).toBeNull()
+    expect(result.validationErrors).toContain('nodes must be a non-empty array')
+  })
+})
+
+describe('parseTaskDefinitionV2', () => {
+  it('should parse the minimal valid v2 format', () => {
+    const result = parseTaskDefinitionV2(`
+title: Minimal V2
+description: Do the work.
+`, 'minimal.yaml')
+
+    expect(result).toMatchObject({
+      path: 'minimal.yaml',
+      title: 'Minimal V2',
+      description: 'Do the work.',
+      baseBranch: 'main',
+      require_approval: false,
+      acceptance: null,
+      executor: null,
+      valid: true,
+      parseError: null,
+      version: 2,
+      hasHumanApproval: false,
+    })
+  })
+
+  it('should parse approval, acceptance, and executor settings', () => {
+    const result = parseTaskDefinitionV2(`
+title: Full V2
+description: Run a longer task.
+base_branch: develop
+require_approval: true
+acceptance:
+  commands:
+    - npm test
+    - pnpm build
+  timeout: "600000"
+  fail_fast: false
+executor:
+  max_turns: "80"
+  timeout: 10800000
+  max_continuations: "3"
+`, 'full.yaml')
+
+    expect(result.valid).toBe(true)
+    expect(result.baseBranch).toBe('develop')
+    expect(result.require_approval).toBe(true)
+    expect(result.hasHumanApproval).toBe(true)
+    expect(result.acceptance).toEqual({
+      commands: ['npm test', 'pnpm build'],
+      timeout: 600000,
+      fail_fast: false,
+    })
+    expect(result.executor).toEqual({
+      max_turns: 80,
+      timeout: 10800000,
+      max_continuations: 3,
+    })
+  })
+
+  it.each([
+    [''],
+    ['plain scalar'],
+    ['- array item'],
+    ['invalid: yaml: ['],
+  ])('should return invalid v2 result for malformed root %#', (yaml) => {
+    const result = parseTaskDefinitionV2(yaml, 'bad-v2.yaml')
+
+    expect(result.valid).toBe(false)
+    expect(result.parseError).not.toBeNull()
+    expect(result.validationErrors.length).toBeGreaterThan(0)
+  })
+
+  it('should fall back to executor and acceptance defaults for invalid numeric values', () => {
+    const result = parseTaskDefinitionV2(`
+title: Defaults
+description: Defaults for invalid numbers.
+acceptance:
+  commands:
+    - npm test
+  timeout: 0
+executor:
+  max_turns: -1
+  timeout: nope
+  max_continuations: 0
+`, 'defaults.yaml')
+
+    expect(result.valid).toBe(true)
+    expect(result.acceptance).toEqual({
+      commands: ['npm test'],
+      timeout: 300000,
+      fail_fast: true,
+    })
+    expect(result.executor).toEqual({
+      max_turns: 30,
+      timeout: 1800000,
+    })
+  })
+
+  it('should migrate v1 task definitions through the public v2 parser', () => {
+    const result = parseTaskDefinitionV2(`
+title: Legacy Task
+base_branch: release
+nodes:
+  - id: developer
+    role: developer
+    prompt: Implement the legacy task.
+  - id: tester
+    role: tester
+    tools:
+      - run:npm test
+  - id: approval
+    role: human_approval
+edges:
+  - from: developer
+    to: tester
+    condition: success
+  - from: tester
+    to: approval
+    condition: success
+`, 'legacy.yaml')
+
+    expect(result.valid).toBe(true)
+    expect(result.version).toBe(2)
+    expect(result.title).toBe('Legacy Task')
+    expect(result.description).toBe('Implement the legacy task.')
+    expect(result.baseBranch).toBe('release')
+    expect(result.require_approval).toBe(true)
+    expect(result.hasHumanApproval).toBe(true)
+    expect(result.acceptance).toEqual({
+      commands: ['npm test'],
+      timeout: 300000,
+      fail_fast: true,
+    })
+    expect(result.nodeCount).toBe(3)
+    expect(result.edgeCount).toBe(2)
   })
 })
 
