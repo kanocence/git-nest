@@ -16,7 +16,6 @@ import { createRunManager } from './services/run-manager'
 import { createEventBus } from './utils/events'
 import { isTerminalRunStatus, RUN_STATUS } from './utils/status'
 
-// 创建应用上下文
 interface AppContext {
   Variables: {
     config: Config
@@ -28,27 +27,21 @@ interface AppContext {
 
 const app = new Hono<AppContext>()
 
-// 中间件
 app.use(honoLogger())
 app.use(cors())
 
-// 初始化依赖
 const config = loadConfig()
 const store = createDb(config.dbPath)
 const bus = createEventBus()
 const runManager = createRunManager(config, store, bus)
 
-// 应用中间件
 app.use(createAuthMiddleware(config))
 app.onError(errorHandler)
 
-// 设置路由
 setupRoutes(app, config, store, bus, runManager)
 
-// 恢复中断的运行
 recoverInterruptedRuns()
 
-// 恢复队列中的运行
 runManager.resumeQueuedRuns()
 
 function recoverInterruptedRuns() {
@@ -104,7 +97,6 @@ function recoverInterruptedRuns() {
   }
 }
 
-// 启动服务器
 info(`[agent] listening on :${config.port}`)
 serve({
   fetch: app.fetch,

@@ -20,8 +20,16 @@ export function createTestConfig(overrides: Partial<Config> = {}): Config {
     executorMaxTurns: 30,
     executorTimeoutMs: 1800000,
     executorMaxContinuations: 2,
-    gooseProvider: 'openai',
-    gooseModel: 'gpt-4o-mini',
+    hermesImage: 'nousresearch/hermes-agent:latest',
+    hermesToolsets: 'file,terminal',
+    hermesProvider: '',
+    hermesModel: '',
+    hermesHostWorkspaceDir: '/tmp/test/workspace',
+    hermesHostStateDir: '/tmp/test/state',
+    hermesHostDataDir: '/tmp/test/hermes',
+    runtimeUid: '1000',
+    runtimeGid: '1000',
+    dockerGid: '999',
     ...overrides,
   }
 }

@@ -562,7 +562,7 @@ async function copyUrl() {
           </span>
         </div>
         <div class="text-xs text-gray-500 dark:text-gray-400">
-          Goose runs valid tasks in the workspace. Web approval, retry, and release controls are available in the task detail page.
+          AI executor runs valid tasks in the workspace. Web approval, retry, and release controls are available in the task detail page.
         </div>
         <div v-if="!canStartAiTask" class="text-xs text-amber-700 dark:text-amber-300">
           <span v-if="aiWorkspace?.occupiedByAi">Starting is disabled while another AI run is occupying this repository.</span>

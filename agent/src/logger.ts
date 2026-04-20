@@ -14,7 +14,6 @@ export const logger = createConsola({
   },
 })
 
-// 导出便捷方法
 export function debug(message: string, ...args: unknown[]) {
   return logger.debug(message, ...args)
 }

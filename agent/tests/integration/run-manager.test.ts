@@ -1,4 +1,4 @@
-import type { CodingExecutor } from '../../src/services/executors/types'
+import type { HermesRunner, HermesRunResult } from '../../src/services/hermes-runner'
 import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
@@ -36,7 +36,14 @@ function createBareRepo(dataDir: string, repo: string, taskPath: string, taskCon
   git(['clone', '--bare', sourceDir, path.join(dataDir, `${repo}.git`)])
 }
 
-describe('run manager executor integration', () => {
+/** Build a mock HermesRunner that directly returns the given result. */
+function mockHermesRunner(
+  runFn: (params: Parameters<HermesRunner['run']>[0], signal: AbortSignal, onOutput: (chunk: string) => void) => Promise<HermesRunResult>,
+): HermesRunner {
+  return { name: 'hermes', run: runFn }
+}
+
+describe('run manager hermes runner integration', () => {
   let tempDir: string | null = null
 
   afterEach(() => {
@@ -98,20 +105,19 @@ describe('run manager executor integration', () => {
       })
       db.createRunWorkspace({ runId, repo, workspacePath })
 
-      const testExecutor: CodingExecutor = {
-        name: 'test-executor',
-        async* run(input) {
-          writeFileSync(path.join(input.workspacePath, 'complete.txt'), `Complete ${input.runId}`, 'utf8')
-          return {
-            status: 'completed',
-            summary: 'Completed without approval',
-            exitCode: 0,
-            hasToolErrors: false,
-          }
-        },
-      }
+      const testRunner = mockHermesRunner(async (params) => {
+        writeFileSync(path.join(params.workspacePath, 'complete.txt'), `Complete ${params.runId}`, 'utf8')
+        return {
+          status: 'completed',
+          summary: 'Completed without approval',
+          continuationEligible: false,
+          exitCode: 0,
+          rawLogPath: `${stateDir}/runs/${params.runId}/hermes.log`,
+          timedOut: false,
+        }
+      })
 
-      const manager = createRunManager(config, db, createEventBus(), testExecutor)
+      const manager = createRunManager(config, db, createEventBus(), testRunner)
       await manager.startRun(runId)
       await waitFor(() => db.getRun(runId)?.status === RUN_STATUS.completed, 30000, 100)
 
@@ -119,10 +125,14 @@ describe('run manager executor integration', () => {
       expect(db.getApprovalState(runId)).toBeNull()
       expect(git(['--git-dir', path.join(dataDir, `${repo}.git`), 'show', `${taskBranch}:complete.txt`])).toContain(runId)
 
-      const eventTypes = db.listRunEvents(runId, 100).map(event => event.type)
+      const events = db.listRunEvents(runId, 100)
+      const eventTypes = events.map(event => event.type)
+      const executorCompleted = events.find(event => event.type === 'run.executor_completed')
       expect(eventTypes).toContain('run.started')
+      expect(eventTypes).toContain('run.executor_completed')
       expect(eventTypes).toContain('run.acceptance_completed')
       expect(eventTypes).toContain('run.completed')
+      expect(executorCompleted?.payload).toMatchObject({ status: 'completed', exitCode: 0, timedOut: false })
     }
     finally {
       db.db.close()
@@ -182,20 +192,19 @@ describe('run manager executor integration', () => {
       })
       db.createRunWorkspace({ runId, repo, workspacePath })
 
-      const testExecutor: CodingExecutor = {
-        name: 'test-executor',
-        async* run(input) {
-          writeFileSync(path.join(input.workspacePath, 'acceptance-failed.txt'), `Uncommitted ${input.runId}`, 'utf8')
-          return {
-            status: 'completed',
-            summary: 'Executor completed before acceptance failure',
-            exitCode: 0,
-            hasToolErrors: false,
-          }
-        },
-      }
+      const testRunner = mockHermesRunner(async (params) => {
+        writeFileSync(path.join(params.workspacePath, 'acceptance-failed.txt'), `Uncommitted ${params.runId}`, 'utf8')
+        return {
+          status: 'completed',
+          summary: 'Executor completed before acceptance failure',
+          continuationEligible: false,
+          exitCode: 0,
+          rawLogPath: `${stateDir}/runs/${params.runId}/hermes.log`,
+          timedOut: false,
+        }
+      })
 
-      const manager = createRunManager(config, db, createEventBus(), testExecutor)
+      const manager = createRunManager(config, db, createEventBus(), testRunner)
       await manager.startRun(runId)
       await waitFor(() => db.getRun(runId)?.status === RUN_STATUS.failed, 30000, 100)
 
@@ -213,8 +222,8 @@ describe('run manager executor integration', () => {
     }
   }, 60000)
 
-  it('should fail and release the lock when the executor fails', async () => {
-    tempDir = createTempDir('git-nest-run-manager-executor-failed-')
+  it('should fail and release the lock when the runner fails', async () => {
+    tempDir = createTempDir('git-nest-run-manager-runner-failed-')
     const dataDir = path.join(tempDir, 'git')
     const workspaceDir = path.join(tempDir, 'workspace')
     const stateDir = path.join(tempDir, 'state')
@@ -223,12 +232,12 @@ describe('run manager executor integration', () => {
     mkdirSync(stateDir, { recursive: true })
 
     const repo = 'repo'
-    const runId = 'run-integration-executor-failed'
-    const taskPath = '.git-nest/tasks/executor-failed.yaml'
+    const runId = 'run-integration-runner-failed'
+    const taskPath = '.git-nest/tasks/runner-failed.yaml'
     const taskBranch = `ai/${runId}`
     createBareRepo(dataDir, repo, taskPath, [
-      'title: Integration Executor Failed',
-      'description: Test executor failure handling.',
+      'title: Integration Runner Failed',
+      'description: Test runner failure handling.',
       'base_branch: main',
       '',
     ].join('\n'))
@@ -244,7 +253,7 @@ describe('run manager executor integration', () => {
         id: runId,
         repo,
         taskPath,
-        taskTitle: 'Integration Executor Failed',
+        taskTitle: 'Integration Runner Failed',
         sourceRef: 'main',
         baseBranch: 'main',
         taskBranch,
@@ -264,23 +273,22 @@ describe('run manager executor integration', () => {
         updatedAt: now,
       })
 
-      const testExecutor: CodingExecutor = {
-        name: 'test-executor',
-        async* run() {
-          return {
-            status: 'failed',
-            summary: 'Executor crashed',
-            exitCode: 1,
-            hasToolErrors: false,
-          }
-        },
-      }
+      const testRunner = mockHermesRunner(async () => {
+        return {
+          status: 'failed',
+          summary: 'Hermes executor failed',
+          continuationEligible: false,
+          exitCode: 1,
+          rawLogPath: `${stateDir}/runs/${runId}/hermes.log`,
+          timedOut: false,
+        }
+      })
 
-      const manager = createRunManager(config, db, createEventBus(), testExecutor)
+      const manager = createRunManager(config, db, createEventBus(), testRunner)
       await manager.startRun(runId)
       await waitFor(() => db.getRun(runId)?.status === RUN_STATUS.failed, 30000, 100)
 
-      expect(db.getRun(runId)?.last_error).toBe('Executor crashed')
+      expect(db.getRun(runId)?.last_error).toBe('Hermes executor failed')
       expect(db.getActiveRepoLock(repo)).toBeNull()
       const eventTypes = db.listRunEvents(runId, 100).map(event => event.type)
       expect(eventTypes).toContain('run.failed')
@@ -333,22 +341,21 @@ describe('run manager executor integration', () => {
       })
       db.createRunWorkspace({ runId, repo, workspacePath })
 
-      const testExecutor: CodingExecutor = {
-        name: 'test-executor',
-        async* run(_input, signal) {
-          while (!signal.aborted)
-            await sleep(10)
+      const testRunner = mockHermesRunner(async (_params, signal) => {
+        while (!signal.aborted)
+          await sleep(10)
 
-          return {
-            status: 'cancelled',
-            summary: 'Cancelled by test',
-            exitCode: 130,
-            hasToolErrors: false,
-          }
-        },
-      }
+        return {
+          status: 'cancelled',
+          summary: 'Cancelled by test',
+          continuationEligible: false,
+          exitCode: 130,
+          rawLogPath: `${stateDir}/runs/${runId}/hermes.log`,
+          timedOut: false,
+        }
+      })
 
-      const manager = createRunManager(config, db, createEventBus(), testExecutor)
+      const manager = createRunManager(config, db, createEventBus(), testRunner)
       await manager.startRun(runId)
       await waitFor(() => db.getRun(runId)?.status === RUN_STATUS.running, 10000, 100)
 
@@ -428,20 +435,19 @@ describe('run manager executor integration', () => {
         updatedAt: now,
       })
 
-      const testExecutor: CodingExecutor = {
-        name: 'test-executor',
-        async* run(input) {
-          writeFileSync(path.join(input.workspacePath, 'retry.txt'), `Retried ${input.runId}`, 'utf8')
-          return {
-            status: 'completed',
-            summary: 'Retry completed',
-            exitCode: 0,
-            hasToolErrors: false,
-          }
-        },
-      }
+      const testRunner = mockHermesRunner(async (params) => {
+        writeFileSync(path.join(params.workspacePath, 'retry.txt'), `Retried ${params.runId}`, 'utf8')
+        return {
+          status: 'completed',
+          summary: 'Retry completed',
+          continuationEligible: false,
+          exitCode: 0,
+          rawLogPath: `${stateDir}/runs/${params.runId}/hermes.log`,
+          timedOut: false,
+        }
+      })
 
-      const manager = createRunManager(config, db, createEventBus(), testExecutor)
+      const manager = createRunManager(config, db, createEventBus(), testRunner)
       await expect(manager.retryRun('not-found')).rejects.toMatchObject({ code: 'RUN_NOT_FOUND' })
       await expect(manager.retryRun('run-not-retryable')).rejects.toMatchObject({ code: 'RUN_NOT_RETRYABLE' })
       await manager.retryRun(runId)
@@ -512,36 +518,30 @@ describe('run manager executor integration', () => {
       })
       db.createRunWorkspace({ runId, repo, workspacePath })
 
-      const testExecutor: CodingExecutor = {
-        name: 'test-executor',
-        async* run(input) {
-          yield {
-            type: 'action',
-            message: 'Writing test change',
-            payload: { action: 'write_file', path: 'executor-change.txt' },
-            timestamp: Date.now(),
-          }
-          writeFileSync(path.join(input.workspacePath, 'executor-change.txt'), `Change by ${input.runId}`, 'utf8')
-          return {
-            status: 'completed',
-            summary: 'Test executor completed successfully',
-            exitCode: 0,
-            hasToolErrors: false,
-          }
-        },
-      }
+      const testRunner = mockHermesRunner(async (params, _signal, onOutput) => {
+        onOutput('Writing test change\n')
+        writeFileSync(path.join(params.workspacePath, 'runner-change.txt'), `Change by ${params.runId}`, 'utf8')
+        return {
+          status: 'completed',
+          summary: 'Test runner completed successfully',
+          continuationEligible: false,
+          exitCode: 0,
+          rawLogPath: `${stateDir}/runs/${params.runId}/hermes.log`,
+          timedOut: false,
+        }
+      })
 
-      const manager = createRunManager(config, db, createEventBus(), testExecutor)
+      const manager = createRunManager(config, db, createEventBus(), testRunner)
       await manager.startRun(runId)
 
       await waitFor(() => db.getRun(runId)?.status === RUN_STATUS.waitingApproval, 10000, 100)
 
-      expect(existsSync(path.join(workspacePath, 'executor-change.txt'))).toBe(true)
+      expect(existsSync(path.join(workspacePath, 'runner-change.txt'))).toBe(true)
       expect(git(['--git-dir', path.join(dataDir, `${repo}.git`), 'rev-parse', '--verify', taskBranch])).toBeTruthy()
-      expect(() => git(['--git-dir', path.join(dataDir, `${repo}.git`), 'show', `${taskBranch}:executor-change.txt`])).toThrow()
+      expect(() => git(['--git-dir', path.join(dataDir, `${repo}.git`), 'show', `${taskBranch}:runner-change.txt`])).toThrow()
 
       let eventTypes = db.listRunEvents(runId, 100).map(event => event.type)
-      expect(eventTypes).toContain('run.executor_action')
+      expect(eventTypes).toContain('run.executor_progress')
       expect(eventTypes).toContain('run.waiting_approval')
       expect(eventTypes).not.toContain('run.acceptance_completed')
 
@@ -561,7 +561,7 @@ describe('run manager executor integration', () => {
       expect(db.getRun(runId)?.status).toBe(RUN_STATUS.completed)
       expect(db.getApprovalState(runId)).toBeNull()
       expect(db.getActiveRepoLock(repo)).toBeNull()
-      expect(git(['--git-dir', path.join(dataDir, `${repo}.git`), 'show', `${taskBranch}:executor-change.txt`])).toContain(runId)
+      expect(git(['--git-dir', path.join(dataDir, `${repo}.git`), 'show', `${taskBranch}:runner-change.txt`])).toContain(runId)
 
       eventTypes = db.listRunEvents(runId, 100).map(event => event.type)
       expect(eventTypes).toContain('run.acceptance_completed')
@@ -570,9 +570,9 @@ describe('run manager executor integration', () => {
     finally {
       db.db.close()
     }
-  })
+  }, 60000)
 
-  it('should pause for continuation when executor budget is exhausted', async () => {
+  it('should pause for continuation when runner timeout is reached', async () => {
     tempDir = createTempDir('git-nest-run-manager-continuation-')
     const dataDir = path.join(tempDir, 'git')
     const workspaceDir = path.join(tempDir, 'workspace')
@@ -587,7 +587,7 @@ describe('run manager executor integration', () => {
     const taskBranch = `ai/${runId}`
     createBareRepo(dataDir, repo, taskPath, [
       'title: Integration Continuation',
-      'description: Continue after executor timeout.',
+      'description: Continue after runner timeout.',
       'base_branch: main',
       'executor:',
       '  max_turns: 1',
@@ -630,31 +630,32 @@ describe('run manager executor integration', () => {
       const continuationCanFinish = new Promise<void>((resolve) => {
         finishContinuation = resolve
       })
-      const testExecutor: CodingExecutor = {
-        name: 'test-executor',
-        async* run(input) {
-          calls += 1
-          if (calls === 1) {
-            return {
-              status: 'failed',
-              summary: 'Goose executor timed out',
-              exitCode: 124,
-              hasToolErrors: false,
-            }
-          }
-
-          writeFileSync(path.join(input.workspacePath, 'continued.txt'), input.prompt, 'utf8')
-          await continuationCanFinish
+      const testRunner = mockHermesRunner(async (params) => {
+        calls += 1
+        if (calls === 1) {
           return {
-            status: 'completed',
-            summary: 'Continuation completed',
-            exitCode: 0,
-            hasToolErrors: false,
+            status: 'failed',
+            summary: 'Hermes execution timeout was reached',
+            continuationEligible: true,
+            exitCode: 137,
+            rawLogPath: `${stateDir}/runs/${runId}/hermes.log`,
+            timedOut: true,
           }
-        },
-      }
+        }
 
-      const manager = createRunManager(config, db, createEventBus(), testExecutor)
+        writeFileSync(path.join(params.workspacePath, 'continued.txt'), params.prompt, 'utf8')
+        await continuationCanFinish
+        return {
+          status: 'completed',
+          summary: 'Continuation completed',
+          continuationEligible: false,
+          exitCode: 0,
+          rawLogPath: `${stateDir}/runs/${runId}/hermes.log`,
+          timedOut: false,
+        }
+      })
+
+      const manager = createRunManager(config, db, createEventBus(), testRunner)
       await manager.startRun(runId)
 
       await waitFor(() => db.getRun(runId)?.status === RUN_STATUS.waitingContinuation, 10000, 100)
@@ -682,7 +683,7 @@ describe('run manager executor integration', () => {
     finally {
       db.db.close()
     }
-  })
+  }, 60000)
 
   it('should reject continuation when continuation state is missing', async () => {
     const db = createTestDb()
@@ -705,17 +706,18 @@ describe('run manager executor integration', () => {
         lastError: null,
       })
 
-      const manager = createRunManager(config, db, createEventBus(), {
-        name: 'test-executor',
-        async* run() {
-          return {
-            status: 'completed',
-            summary: 'unused',
-            exitCode: 0,
-            hasToolErrors: false,
-          }
-        },
+      const testRunner = mockHermesRunner(async () => {
+        return {
+          status: 'completed',
+          summary: 'unused',
+          continuationEligible: false,
+          exitCode: 0,
+          rawLogPath: '/tmp/hermes.log',
+          timedOut: false,
+        }
       })
+
+      const manager = createRunManager(config, db, createEventBus(), testRunner)
 
       await expect(manager.continueRun('run-missing-continuation-state', 'continue')).rejects.toMatchObject({
         statusCode: 409,
@@ -726,7 +728,7 @@ describe('run manager executor integration', () => {
     finally {
       db.db.close()
     }
-  })
+  }, 10000)
 
   it('should reject continuation when continuation state is invalid', async () => {
     const db = createTestDb()
@@ -758,17 +760,18 @@ describe('run manager executor integration', () => {
       })
       db.db.prepare('UPDATE approval_states SET prior_outputs = ? WHERE run_id = ?').run('not-json', runId)
 
-      const manager = createRunManager(config, db, createEventBus(), {
-        name: 'test-executor',
-        async* run() {
-          return {
-            status: 'completed',
-            summary: 'unused',
-            exitCode: 0,
-            hasToolErrors: false,
-          }
-        },
+      const testRunner = mockHermesRunner(async () => {
+        return {
+          status: 'completed',
+          summary: 'unused',
+          continuationEligible: false,
+          exitCode: 0,
+          rawLogPath: '/tmp/hermes.log',
+          timedOut: false,
+        }
       })
+
+      const manager = createRunManager(config, db, createEventBus(), testRunner)
 
       await expect(manager.continueRun(runId, 'continue')).rejects.toMatchObject({
         statusCode: 409,
@@ -780,7 +783,7 @@ describe('run manager executor integration', () => {
     finally {
       db.db.close()
     }
-  })
+  }, 10000)
 
   it('should fail when continuation budget is exhausted', async () => {
     tempDir = createTempDir('git-nest-run-manager-continuation-exhausted-')
@@ -836,20 +839,19 @@ describe('run manager executor integration', () => {
       db.createRunWorkspace({ runId, repo, workspacePath })
 
       let calls = 0
-      const testExecutor: CodingExecutor = {
-        name: 'test-executor',
-        async* run() {
-          calls += 1
-          return {
-            status: 'failed',
-            summary: 'Goose executor timed out',
-            exitCode: 124,
-            hasToolErrors: false,
-          }
-        },
-      }
+      const testRunner = mockHermesRunner(async () => {
+        calls += 1
+        return {
+          status: 'failed',
+          summary: 'Hermes execution timeout was reached',
+          continuationEligible: true,
+          exitCode: 137,
+          rawLogPath: `${stateDir}/runs/${runId}/hermes.log`,
+          timedOut: true,
+        }
+      })
 
-      const manager = createRunManager(config, db, createEventBus(), testExecutor)
+      const manager = createRunManager(config, db, createEventBus(), testRunner)
       await manager.startRun(runId)
       await waitFor(() => db.getRun(runId)?.status === RUN_STATUS.waitingContinuation, 10000, 100)
 
@@ -859,7 +861,7 @@ describe('run manager executor integration', () => {
       expect(calls).toBe(2)
       expect(db.getApprovalState(runId)).toBeNull()
       expect(db.getActiveRepoLock(repo)).toBeNull()
-      expect(db.getRun(runId)?.last_error).toBe('Goose executor timed out')
+      expect(db.getRun(runId)?.last_error).toBe('Hermes execution timeout was reached')
 
       const eventTypes = db.listRunEvents(runId, 100).map(event => event.type)
       expect(eventTypes.filter(type => type === 'run.waiting_continuation')).toHaveLength(1)
@@ -901,18 +903,18 @@ describe('run manager executor integration', () => {
         updatedAt: now,
       })
 
-      const manager = createRunManager(config, db, createEventBus(), {
-        name: 'test-executor',
-        async* run() {
-          return {
-            status: 'completed',
-            summary: 'unused',
-            exitCode: 0,
-            hasToolErrors: false,
-          }
-        },
+      const testRunner = mockHermesRunner(async () => {
+        return {
+          status: 'completed',
+          summary: 'unused',
+          continuationEligible: false,
+          exitCode: 0,
+          rawLogPath: '/tmp/hermes.log',
+          timedOut: false,
+        }
       })
 
+      const manager = createRunManager(config, db, createEventBus(), testRunner)
       await manager.continueRun(runId, 'stop')
 
       expect(db.getRun(runId)?.status).toBe(RUN_STATUS.cancelled)
@@ -923,5 +925,5 @@ describe('run manager executor integration', () => {
     finally {
       db.db.close()
     }
-  })
+  }, 10000)
 })

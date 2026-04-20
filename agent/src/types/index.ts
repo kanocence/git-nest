@@ -17,8 +17,16 @@ export interface Config {
   executorMaxTurns: number
   executorTimeoutMs: number
   executorMaxContinuations: number
-  gooseProvider: string
-  gooseModel: string
+  hermesImage: string
+  hermesToolsets: string
+  hermesProvider: string
+  hermesModel: string
+  hermesHostWorkspaceDir: string
+  hermesHostStateDir: string
+  hermesHostDataDir: string
+  runtimeUid: string
+  runtimeGid: string
+  dockerGid: string
 }
 
 export type RunStatus

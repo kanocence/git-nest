@@ -1,8 +1,8 @@
 # Git Nest AI Agent 文档
 
-> 说明当前 `agent` 的实现范围、共享 workspace 模型、任务 YAML 结构和现有 API。
+> `agent` 实现范围、共享 workspace 模型、任务 YAML 结构和 API 说明。
 
-## 1. 当前实现状态
+## 1. 实现状态
 
 Git Nest 的 AI 能力已实现可运行的核心闭环。
 
@@ -14,8 +14,8 @@ Git Nest 的 AI 能力已实现可运行的核心闭环。
 - 共享 workspace 状态探测
 - 任务 YAML 发现与解析
 - DAG 基础校验
-- 基于 Goose CLI 的执行器
-- 通过 Goose CLI 调用模型
+- 通过 Docker CLI 直接启动 Hermes 容器执行任务
+- Hermes CLI 调用模型
 - run 持久化、事件日志、SSE 实时推送
 - 容器重启后的锁恢复和队列恢复
 - 审批状态持久化到 SQLite（重启后可恢复 `waiting_approval`）
@@ -24,11 +24,11 @@ Git Nest 的 AI 能力已实现可运行的核心闭环。
 尚未实现：
 
 - 多节点之间的有界循环迭代（`needs_changes` 自动回溯）
-- webhook 事件通知（计划功能，当前仅保留配置入口）
+- webhook 事件通知（计划功能，仅保留配置入口）
 
 ## 2. 架构位置
 
-当前 AI 相关链路如下：
+AI 相关链路如下：
 
 ```text
 Browser
@@ -47,7 +47,7 @@ Browser
 
 ## 3. 共享 Workspace 模型
 
-当前没有独立 `agent workspace`。AI 与人工共用：
+没有独立 `agent workspace`，AI 与人工共用：
 
 ```text
 /workspace/<repo>
@@ -67,7 +67,7 @@ Browser
 
 ## 4. 状态机
 
-当前统一使用以下状态名：
+状态：
 
 ```text
 queued
@@ -81,7 +81,7 @@ cancelled
 system_interrupted
 ```
 
-当前最常见的状态是：
+常见状态：
 
 - `preparing`
 - `queued`
@@ -93,7 +93,7 @@ system_interrupted
 
 说明：
 
-- `queued` 当前表示“共享工作区和任务分支已经准备完成，后台执行器即将接管”
+- `queued` 表示“共享工作区和任务分支已经准备完成，后台执行器即将接管”
 - `running` 表示最小执行器正在调用模型并推进节点
 
 ## 5. 任务 YAML
@@ -104,7 +104,7 @@ system_interrupted
 .git-nest/tasks/*.yaml
 ```
 
-### 5.1 当前支持的字段
+### 5.1 支持的字段
 
 根字段：
 
@@ -145,7 +145,7 @@ system_interrupted
 - `rejected`
 - `failed`
 
-### 5.3 当前校验内容
+### 5.3 校验内容
 
 - YAML 语法必须正确
 - 根对象必须是 map/object
@@ -200,7 +200,7 @@ edges:
 
 注意：
 
-- 当前执行器支持无环 DAG
+- 执行器支持无环 DAG
 - review 返回 `needs_changes` 的有界迭代尚未实现
 - `human_approval` 节点会进入 `waiting_approval`
 - 审批状态已持久化到 SQLite，`resume` 接口在 agent 重启后仍可恢复
@@ -234,9 +234,9 @@ executor:
   max_continuations: 1
 ```
 
-不要把长任务等同于无限任务。配置预算时需要结合 AI plan 的拆分粒度、模型 token 窗口、API 成本、仓库锁占用时间和验收命令耗时来决定。预算耗尽或疑似达到轮次上限时，run 会进入 `waiting_continuation`，用户可以在详情页选择 Continue 或 Stop。
+不要把长任务等同于无限任务。配置预算时需要结合 AI plan 的拆分粒度、模型 token 窗口、API 成本、仓库锁占用时间和验收命令耗时来决定。executor 超时或明确返回可继续状态时，run 会进入 `waiting_continuation`，用户可以在详情页选择 Continue 或 Stop。
 
-## 6. 当前 API
+## 6. API
 
 ### 6.1 Nuxt 对外代理
 
@@ -269,12 +269,12 @@ POST /api/runs/:id/release
 GET  /api/events
 ```
 
-### 6.3 当前语义
+### 6.3 语义
 
 - `GET /api/repos/:repo/ai/tasks`
   返回任务文件摘要和校验结果
 - `GET /api/repos/:repo/ai/workspace`
-  返回共享工作区状态和当前 AI 占用信息
+  返回共享工作区状态和 AI 占用信息
 - `POST /api/repos/:repo/ai/tasks/start`
   准备 workspace、切任务分支、加锁并自动启动后台执行
 - `POST /api/ai/runs/:id/resume`
@@ -288,13 +288,13 @@ GET  /api/events
 
 ## 7. Web 页面
 
-当前已接入三个入口：
+已接入三个入口：
 
 - 仓库详情页中的 `AI Tasks` 区块
 - 顶部导航中的 `/tasks`
 - `/tasks/:id` run 详情页
 
-当前页面能力：
+页面能力：
 
 - 查看共享 workspace 状态
 - 查看任务 YAML 校验结果
@@ -306,13 +306,13 @@ GET  /api/events
 - 对 `system_interrupted` run 执行重试
 - 对 `running`/`queued`/`preparing` run 执行释放（Release）
 
-当前页面不支持：
+页面不支持：
 
 - 查看完整模型原始响应文件
 
 ## 8. 持久化与恢复
 
-当前使用 `SQLite` 保存：
+使用 `SQLite` 保存：
 
 - runs
 - repo_locks
@@ -336,7 +336,7 @@ ${AGENT_STATE_DIR}/state.sqlite
 
 - 只支持无环 DAG
 - `needs_changes` 条件不会自动触发迭代回溯，需要人工启动新 run
-- webhook 通知尚未实现，当前仅保留配置入口
+- webhook 通知尚未实现，仅保留配置入口
 - 共享 workspace 隔离性较弱，AI 运行期间不建议人工同时修改同一目录
 
 ## 10. 下一阶段建议

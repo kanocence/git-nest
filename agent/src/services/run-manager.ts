@@ -1,16 +1,14 @@
 import type { DbApi } from '../db'
 import type { Config, RunRecord, RunStatus, TaskDefinitionV2 } from '../types'
 import type { EventBus } from '../utils/events'
-import type { CodingExecutor, CodingExecutorEvent, CodingExecutorInput, CodingExecutorResult } from './executors/types'
+import type { HermesRunner, HermesRunParams, HermesRunResult } from './hermes-runner'
 import { info, error as logError } from '../logger'
 import { AppError } from '../utils/errors'
 import { RUN_STATUS } from '../utils/status'
 import { validateAcceptanceCommand } from './acceptance'
-import { createExecutor } from './executors'
 import { cleanupRunWorkspace, commitAndPushRunWorkspace, getRunWorkspacePath, hasRunWorkspaceChanges, readTaskFile, runRunWorkspaceCommand } from './git'
+import { createHermesRunner } from './hermes-runner'
 import { parseTaskDefinitionV2 } from './tasks'
-
-const CONTINUATION_ELIGIBLE_SUMMARY_RE = /timeout|timed out|max.?turn|turn.?limit/i
 
 export interface RunManager {
   startRun: (runId: string) => Promise<void>
@@ -30,7 +28,7 @@ interface ContinuationState {
 interface RunContext {
   run: RunRecord
   task: TaskDefinitionV2
-  executor: CodingExecutor
+  hermesRunner: HermesRunner
   abortController: AbortController
   continuation?: ContinuationState
 }
@@ -39,10 +37,10 @@ export function createRunManager(
   config: Config,
   store: DbApi,
   bus: EventBus,
-  executorOverride?: CodingExecutor,
+  hermesRunnerOverride?: HermesRunner,
 ): RunManager {
   const activeRuns = new Map<string, RunContext>()
-  const executor = executorOverride || createExecutor(config)
+  const hermesRunner = hermesRunnerOverride || createHermesRunner(config)
 
   function recordEvent(
     run: RunRecord,
@@ -87,11 +85,6 @@ export function createRunManager(
 
   function getMaxContinuations(task: TaskDefinitionV2): number {
     return task.executor?.max_continuations ?? config.executorMaxContinuations
-  }
-
-  function isContinuationEligible(result: CodingExecutorResult): boolean {
-    const summary = result.summary || ''
-    return result.exitCode === 124 || CONTINUATION_ELIGIBLE_SUMMARY_RE.test(summary)
   }
 
   function buildExecutorPrompt(task: TaskDefinitionV2, continuation?: ContinuationState): string {
@@ -149,14 +142,16 @@ Continue from the current workspace state. Inspect existing changes first, do no
   function pauseForContinuation(
     run: RunRecord,
     task: TaskDefinitionV2,
-    result: CodingExecutorResult,
+    result: HermesRunResult,
     continuationsUsed: number,
   ): boolean {
     const maxContinuations = getMaxContinuations(task)
     if (continuationsUsed >= maxContinuations)
       return false
 
-    const reason = result.exitCode === 124 ? 'Executor timeout was reached' : 'Executor turn budget appears to be exhausted'
+    const reason = result.timedOut
+      ? 'Hermes execution timeout was reached'
+      : result.summary || 'Hermes executor requested continuation'
     const summary = result.summary || reason
 
     run = store.updateRunStatus(run.id, RUN_STATUS.waitingContinuation, summary)!
@@ -329,7 +324,7 @@ Continue from the current workspace state. Inspect existing changes first, do no
       throw new AppError(500, 'RUN_CONTEXT_LOST', 'Run context was lost')
     }
 
-    const { run: initialRun, task, executor, abortController, continuation } = context
+    const { run: initialRun, task, hermesRunner, abortController, continuation } = context
     let run = initialRun
 
     // Run-level watchdog: fires 1 min after the executor's own timeout to force-abort
@@ -351,7 +346,7 @@ Continue from the current workspace state. Inspect existing changes first, do no
         type: continuation ? 'run.continuation_started' : isRetry ? 'run.retry' : 'run.started',
         message: continuation ? 'Run execution continued with another budget' : isRetry ? 'Run execution retried' : 'Run execution started',
         payload: {
-          executor: executor.name,
+          executor: 'hermes',
           task: task.title,
           maxTurns: task.executor?.max_turns || config.executorMaxTurns,
           timeoutMs: task.executor?.timeout || config.executorTimeoutMs,
@@ -360,66 +355,52 @@ Continue from the current workspace state. Inspect existing changes first, do no
         },
       })
 
-      // Build executor input
-      const executorInput: CodingExecutorInput = {
+      // Build runner params
+      const runParams: HermesRunParams = {
         runId: run.id,
         repo: run.repo,
         workspacePath: getRunWorkspacePath(config, run.repo, run.id),
         prompt: buildExecutorPrompt(task, continuation),
-        acceptanceCommands: task.acceptance?.commands || [],
-        model: {
-          provider: config.gooseProvider,
-          model: config.gooseModel,
-        },
         maxTurns: task.executor?.max_turns || config.executorMaxTurns,
         timeoutMs: task.executor?.timeout || config.executorTimeoutMs,
-        env: {},
+        toolsets: config.hermesToolsets,
+        provider: config.hermesProvider,
+        model: config.hermesModel,
       }
 
-      // Execute with executor
-      const eventStream = executor.run(executorInput, abortController.signal)
+      // Execute with HermesRunner
+      const finalResult = await hermesRunner.run(
+        runParams,
+        abortController.signal,
+        (chunk: string) => {
+          recordEvent(run, {
+            type: 'run.executor_progress',
+            message: chunk,
+          })
+        },
+      )
 
-      // Consume all events from executor
-      const finalResult = await (async (): Promise<import('./executors/types').CodingExecutorResult> => {
-        let result = await eventStream.next()
-
-        while (!result.done) {
-          if (abortController.signal.aborted) {
-            throw new AppError(499, 'RUN_CANCELLED', 'Run was cancelled by user')
-          }
-
-          // Forward executor events to our event system
-          handleExecutorEvent(run, result.value)
-
-          result = await eventStream.next()
-        }
-
-        if (!result.value) {
-          throw new AppError(500, 'EXECUTOR_ERROR', 'Executor did not return a result')
-        }
-
-        return result.value
-      })()
+      recordEvent(run, {
+        type: 'run.executor_completed',
+        message: `Hermes executor ${finalResult.status}`,
+        payload: {
+          status: finalResult.status,
+          exitCode: finalResult.exitCode,
+          timedOut: finalResult.timedOut,
+          rawLogPath: finalResult.rawLogPath,
+        },
+      })
 
       if (finalResult.status !== 'completed') {
-        if (isContinuationEligible(finalResult) && pauseForContinuation(run, task, finalResult, continuation?.continuationsUsed || 0)) {
+        if (finalResult.continuationEligible && pauseForContinuation(run, task, finalResult, continuation?.continuationsUsed || 0)) {
           return
         }
 
         const code = finalResult.status === 'cancelled' ? 'RUN_CANCELLED' : 'EXECUTOR_FAILED'
         const statusCode = finalResult.status === 'cancelled' ? 499 : 500
-        throw new AppError(statusCode, code, finalResult.summary || `Executor ${finalResult.status}`, {
+        throw new AppError(statusCode, code, finalResult.summary || `Hermes ${finalResult.status}`, {
           exitCode: finalResult.exitCode,
           rawLogPath: finalResult.rawLogPath,
-        })
-      }
-
-      // Warn if executor reported tool errors despite a clean exit
-      if (finalResult.hasToolErrors) {
-        recordEvent(run, {
-          type: 'run.executor_warning',
-          message: 'Executor completed with tool errors - output may be incomplete',
-          payload: { hasToolErrors: true, rawLogPath: finalResult.rawLogPath },
         })
       }
 
@@ -480,7 +461,6 @@ Continue from the current workspace state. Inspect existing changes first, do no
       const isAcceptanceFailed = error instanceof AppError && error.code === 'ACCEPTANCE_FAILED'
 
       // Note: We do NOT commit on acceptance failure - changes stay in workspace for inspection
-      // Only log the failure without pushing to remote
 
       if (isCancelled) {
         run = store.updateRunStatus(runId, RUN_STATUS.cancelled, message)!
@@ -509,53 +489,6 @@ Continue from the current workspace state. Inspect existing changes first, do no
     finally {
       clearTimeout(runTimeoutId)
       activeRuns.delete(runId)
-    }
-  }
-
-  function handleExecutorEvent(run: RunRecord, event: CodingExecutorEvent): void {
-    switch (event.type) {
-      case 'log':
-        recordEvent(run, {
-          type: 'run.executor_log',
-          message: event.message,
-          payload: event.payload,
-        })
-        break
-      case 'action':
-        recordEvent(run, {
-          type: 'run.executor_action',
-          message: event.message,
-          payload: event.payload,
-        })
-        break
-      case 'tool':
-        recordEvent(run, {
-          type: 'run.executor_tool',
-          message: event.message,
-          payload: event.payload,
-        })
-        break
-      case 'error':
-        recordEvent(run, {
-          type: 'run.executor_error',
-          message: event.message,
-          payload: event.payload,
-        })
-        break
-      case 'progress':
-        recordEvent(run, {
-          type: 'run.executor_progress',
-          message: event.message,
-          payload: event.payload,
-        })
-        break
-      case 'completed':
-        recordEvent(run, {
-          type: 'run.executor_completed',
-          message: event.message,
-          payload: event.payload,
-        })
-        break
     }
   }
 
@@ -601,7 +534,7 @@ Continue from the current workspace state. Inspect existing changes first, do no
     const context: RunContext = {
       run,
       task,
-      executor,
+      hermesRunner,
       abortController,
     }
 
@@ -710,7 +643,7 @@ Continue from the current workspace state. Inspect existing changes first, do no
     activeRuns.set(runId, {
       run,
       task,
-      executor,
+      hermesRunner,
       abortController,
       continuation: nextContinuation,
     })
@@ -746,7 +679,7 @@ Continue from the current workspace state. Inspect existing changes first, do no
     const context: RunContext = {
       run,
       task,
-      executor,
+      hermesRunner,
       abortController,
     }
 

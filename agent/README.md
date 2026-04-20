@@ -1,6 +1,6 @@
 # Git Nest Agent
 
-Git Nest Agent 是 Git Nest 系统的 AI 任务执行引擎，负责解析和执行基于 YAML 定义的任务流程。Agent 作为平台层协调外部 Coding Executor（如 Goose CLI）完成任务执行，提供 HTTP API 接口供前端调用。
+Git Nest Agent 是 Git Nest 系统的 AI 任务执行引擎，负责解析和执行基于 YAML 定义的任务流程。Agent 通过 Docker CLI 直接启动 Hermes 容器完成任务执行，提供 HTTP API 接口供前端调用。
 
 ## 架构概述
 
@@ -8,13 +8,13 @@ Git Nest Agent 采用分层架构：
 
 - **Platform Layer**: API 路由、数据库、Git 操作、事件总线、Webhook 配置入口
 - **RunManager**: 运行生命周期管理（启动、执行、完成、取消）
-- **CodingExecutor**: 外部执行器接口（Goose CLI、Mock 等）
+- **HermesRunner**: 通过 Docker CLI 启动 Hermes 容器直接执行 AI 任务
 
 ## 功能介绍
 
 ### 核心特性
 
-- **外部执行器支持**：集成 Goose CLI 等外部 Coding Executor
+- **AI 执行器支持**：通过 Docker 直接启动 Hermes CLI 执行任务
 - **简化任务定义**：使用描述性 YAML 格式定义任务需求和验收标准
 - **人工审批节点**：支持在任务完成后插入人工审批
 - **Git 工作区管理**：使用 git worktree 实现运行级工作区隔离
@@ -56,11 +56,8 @@ agent/
 │   ├── routes/           # API 路由
 │   │   └── index.ts      # 所有 HTTP 端点定义
 │   ├── services/         # 核心服务
-│   │   ├── executors/    # 外部执行器适配器
-│   │   │   ├── index.ts  # 执行器工厂
-│   │   │   ├── types.ts  # 执行器接口定义
-│   │   │   ├── goose.ts  # Goose CLI 适配器
 │   │   ├── run-manager.ts # 运行生命周期管理器
+│   │   ├── hermes-runner.ts # Hermes Docker 执行器
 │   │   ├── git.ts        # Git 操作服务
 │   │   ├── tasks.ts      # 任务定义解析
 │   ├── types/            # TypeScript 类型定义
@@ -105,61 +102,69 @@ agent/
 
 ### 执行器配置
 
-| 变量名                      | 默认值    | 说明                                     |
-| --------------------------- | --------- | ---------------------------------------- |
-| `AGENT_EXECUTOR_MAX_TURNS`  | `30`      | 最大对话轮数（Goose `--max-turns` 参数） |
-| `AGENT_EXECUTOR_TIMEOUT_MS` | `1800000` | 执行超时（毫秒，默认 30 分钟）           |
-| `GIT_TIMEOUT_MS`            | `30000`   | Git 命令超时时间（毫秒）                 |
-| `COMMAND_TIMEOUT_MS`        | `120000`  | 普通命令超时时间（毫秒）                 |
+| 变量名                      | 默认值    | 说明                                      |
+| --------------------------- | --------- | ----------------------------------------- |
+| `AGENT_EXECUTOR_MAX_TURNS`  | `30`      | 最大对话轮数（Hermes `--max-turns` 参数） |
+| `AGENT_EXECUTOR_TIMEOUT_MS` | `1800000` | 执行超时（毫秒，默认 30 分钟）            |
+| `GIT_TIMEOUT_MS`            | `30000`   | Git 命令超时时间（毫秒）                  |
+| `COMMAND_TIMEOUT_MS`        | `120000`  | 普通命令超时时间（毫秒）                  |
 
-### Goose 执行器配置
+### Hermes 执行器配置
 
-Goose 执行器通过环境变量直接配置，Agent 只做透传。根据你使用的 Provider 设置对应的环境变量：
+Hermes 执行器通过 Docker CLI 直接启动。Agent 负责绑定挂载工作区、状态目录和提示文件，并透传 Provider API 密钥环境变量。
+
+**必需配置：**
+
+| 变量名                        | 默认值 | 说明                                                     |
+| ----------------------------- | ------ | -------------------------------------------------------- |
+| `HERMES_HOST_WORKSPACE_DIR`   | -      | 宿主机工作区目录绝对路径（挂载到容器 `/data/workspace`） |
+| `HERMES_HOST_AGENT_STATE_DIR` | -      | 宿主机状态目录绝对路径（用于写入提示文件和日志）         |
+| `HERMES_HOST_DATA_DIR`        | -      | 宿主机数据目录绝对路径（挂载到容器 `/opt/data`）         |
 
 **通用配置：**
 
-| 变量名                 | 默认值        | 说明                                         |
-| ---------------------- | ------------- | -------------------------------------------- |
-| `GOOSE_PROVIDER`       | `openai`      | Goose provider（openai/anthropic/google 等） |
-| `GOOSE_MODEL`          | `gpt-4o-mini` | 模型名称                                     |
-| `AGENT_MODEL_PROVIDER` | -             | 兼容旧配置，会被 `GOOSE_PROVIDER` 覆盖       |
-| `AGENT_MODEL`          | -             | 兼容旧配置，会被 `GOOSE_MODEL` 覆盖          |
+| 变量名            | 默认值                             | 说明               |
+| ----------------- | ---------------------------------- | ------------------ |
+| `HERMES_IMAGE`    | `nousresearch/hermes-agent:latest` | Hermes Docker 镜像 |
+| `HERMES_TOOLSETS` | `file,terminal`                    | 启用的工具集       |
+| `HERMES_PROVIDER` | -                                  | Provider 标识      |
+| `HERMES_MODEL`    | -                                  | 模型名称           |
+| `PUID`            | `1000`                             | 容器运行用户 ID    |
+| `PGID`            | `1000`                             | 容器运行组 ID      |
 
 **各 Provider 配置示例：**
 
 ```bash
-# OpenAI
-export OPENAI_API_KEY=sk-xxx
-export GOOSE_PROVIDER=openai
-export GOOSE_MODEL=gpt-4o
+# OpenRouter
+export OPENROUTER_API_KEY=sk-or-xxx
+export HERMES_PROVIDER=openrouter
+export HERMES_MODEL=meta-llama/llama-3.1-70b-instruct
 
 # Anthropic
 export ANTHROPIC_API_KEY=sk-ant-xxx
-export GOOSE_PROVIDER=anthropic
-export GOOSE_MODEL=claude-3-5-sonnet-20241022
+export HERMES_PROVIDER=anthropic
+export HERMES_MODEL=claude-3-5-sonnet-20241022
+
+# Kimi（Moonshot）
+export KIMI_API_KEY=sk-xxx
+export HERMES_PROVIDER=kimi-coding
+export HERMES_MODEL=kimi-k2
 
 # Google Gemini
 export GOOGLE_API_KEY=xxx
-export GOOSE_PROVIDER=google
-export GOOSE_MODEL=gemini-2.0-flash-exp
+export GEMINI_API_KEY=xxx
+export HERMES_PROVIDER=gemini
+export HERMES_MODEL=gemini-2.0-flash-exp
 
-# Azure OpenAI
-export AZURE_OPENAI_API_KEY=xxx
-export AZURE_OPENAI_ENDPOINT=https://your-resource.openai.azure.com/
-export AZURE_OPENAI_DEPLOYMENT_NAME=your-deployment-name
-export GOOSE_PROVIDER=azure_openai
-export GOOSE_MODEL=gpt-4o
+# DeepSeek
+export DEEPSEEK_API_KEY=sk-xxx
+export HERMES_PROVIDER=deepseek
+export HERMES_MODEL=deepseek-chat
 
-# Ollama（本地模型）
-export OLLAMA_HOST=http://localhost:11434
-export GOOSE_PROVIDER=ollama
-export GOOSE_MODEL=qwen2.5
-
-# Kimi / MiniMax / 其他 OpenAI 兼容服务
-export OPENAI_API_KEY=sk-xxx
-export OPENAI_BASE_URL=https://api.moonshot.cn/v1
-export GOOSE_PROVIDER=openai
-export GOOSE_MODEL=moonshot-v1-8k
+# DashScope（通义千问）
+export DASHSCOPE_API_KEY=sk-xxx
+export HERMES_PROVIDER=alibaba
+export HERMES_MODEL=qwen-max
 ```
 
 ### Git 配置

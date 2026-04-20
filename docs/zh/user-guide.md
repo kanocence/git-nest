@@ -1,6 +1,6 @@
 # Git Nest 使用手册
 
-> 面向日常使用，介绍 Web UI、SSH、`code-server` 和当前 AI 任务面板的使用方式。
+> 面向日常使用，介绍 Web UI、SSH、`code-server` 和 AI 任务面板。
 
 ## 1. Web UI
 
@@ -73,7 +73,7 @@ git pull origin main
 
 ## 4. AI 任务文件
 
-当前 AI 任务定义来自仓库中的 YAML 文件，而不是 Web 上传。
+AI 任务定义来自仓库中的 YAML 文件，而不是 Web 上传。
 
 约定位置：
 
@@ -86,7 +86,7 @@ git pull origin main
 - 本地 clone 后提交推送
 - 在 `code-server` 中直接编辑并提交
 
-### 4.1 当前支持的 YAML 结构
+### 4.1 支持的 YAML 结构
 
 ```yaml
 title: Add repo download archive
@@ -119,7 +119,7 @@ edges:
     condition: success
 ```
 
-当前校验规则：
+校验规则：
 
 - `nodes` 必须是非空数组
 - `edges` 必须是数组
@@ -131,14 +131,14 @@ edges:
 
 ## 5. 仓库页中的 AI Tasks 面板
 
-仓库详情页现在会显示：
+仓库详情页显示：
 
 - 共享 workspace 路径
 - 当前分支
 - 工作区是否干净
 - 仓库是否被 AI 占用
-- 当前活跃 run ID 和任务分支
-- 当前仓库下所有任务 YAML 的解析结果
+- 活跃 run ID 和任务分支
+- 仓库下所有任务 YAML 的解析结果
 - 对有效任务显示 `Start Run` 按钮
 
 如果某个 YAML 非法，会显示：
@@ -149,12 +149,12 @@ edges:
 
 ## 6. `/tasks` 页面
 
-导航栏里的 `/tasks` 页面会列出当前所有 AI runs，包括：
+导航栏里的 `/tasks` 页面会列出所有 AI runs，包括：
 
 - 仓库名
 - 任务标题 / 任务文件
 - 任务分支
-- 当前状态
+- 状态
 - 更新时间
 - 最近错误
 
@@ -173,28 +173,28 @@ edges:
 - `system_interrupted`：Retry
 - `running` / `queued` / `preparing`：Release（取消或解除占用）
 
-## 7. 当前 AI 功能边界
+## 7. AI 功能边界
 
-当前已实现：
+已实现：
 
 - 任务发现与 YAML 校验
 - 共享 workspace 状态展示
 - run 列表、详情读取与 SSE 实时事件
 - 后端 `start/release/approve/reject/continue/stop/retry` API
-- Goose 执行器对接
-- 通过 Goose CLI 调用模型
+- Hermes 执行器对接
+- 通过 Docker CLI 启动 Hermes 容器调用模型
 - 自动 git commit / push
 - Web 审批、重试与释放操作
 
 尚未实现：
 
-- webhook 通知（计划功能，当前仅保留配置入口）
+- webhook 通知（计划功能，仅保留配置入口）
 
 Web 上现在是一个“完整执行控制台”：可以启动任务、实时观测执行日志、审批敏感节点、重试中断任务，以及手动释放占用的工作区。
 
 ## 8. 开发者可用的临时 API
 
-Nuxt 代理层当前提供了这些接口：
+Nuxt 代理层提供了这些接口：
 
 ```text
 GET  /api/repos/:repo/ai/tasks
@@ -213,7 +213,7 @@ GET  /api/ai/events
 
 - `start` 会准备共享 workspace、切任务分支并自动启动后台执行
 - `resume` / `approve` / `reject` 适用于 `waiting_approval` 状态；审批状态已持久化到 SQLite，agent 重启后会自动恢复
-- `continue` / `stop` 适用于 `waiting_continuation` 状态；当 executor 超时或疑似达到轮次上限时，用户可以继续给它一段预算或停止任务
+- `continue` / `stop` 适用于 `waiting_continuation` 状态；当 executor 超时或明确返回可继续状态时，用户可以继续给它一段预算或停止任务
 - `release` 适用于所有活跃 run（`running` / `queued` / `preparing` / `waiting_continuation`），会根据状态自动发送取消信号或解除仓库锁
 - `retry` 适用于 `system_interrupted` 状态的 run
 - 如果 YAML 含有 `require_approval: true`，run 会在验收前进入 `waiting_approval`
@@ -222,25 +222,27 @@ GET  /api/ai/events
 
 ### 9.1 为什么我看得到任务 YAML，但不能在页面里直接运行
 
-现在仓库页已经可以直接启动有效任务；当前缺的是审批、恢复和更复杂的执行控制，而不是启动入口本身。
+仓库页可以直接启动有效任务；缺的是审批、恢复和更复杂的执行控制，而不是启动入口本身。
 
 ### 9.2 为什么仓库被标记为 `AI Occupied`
 
-说明该仓库当前存在活跃 run，AI 占用了共享工作区。此时不要人工同时修改同一目录。
+说明该仓库存在活跃 run，AI 占用了共享工作区。此时不要人工同时修改同一目录。
 
 ### 9.3 为什么任务启动前要求工作区干净
 
-因为当前 AI 和人工共用 `/workspace/<repo>`。如果工作区有未提交改动，系统无法安全区分哪些改动属于人工、哪些改动属于 AI。
+因为 AI 和人工共用 `/workspace/<repo>`。如果工作区有未提交改动，系统无法区分哪些改动属于人工、哪些属于 AI。
 
 ### 9.4 没有配置 API Key 时能不能跑
 
-不能。当前只支持 Goose 执行器，需要先配置 Goose CLI 所需的模型环境变量：
+不能。需要配置 Hermes 执行器所需的环境变量，并根据选用的 Provider 设置对应的 API Key：
 
 ```bash
-OPENAI_API_KEY=...
-OPENAI_BASE_URL=https://api.openai.com/v1
-GOOSE_PROVIDER=openai
-GOOSE_MODEL=gpt-4o-mini
+# Hermes 基础配置
+HERMES_PROVIDER=openrouter
+HERMES_MODEL=meta-llama/llama-3.1-70b-instruct
+
+# Provider API Key（根据 HERMES_PROVIDER 选择）
+OPENROUTER_API_KEY=sk-or-...
 ```
 
 ## 10. 相关文档

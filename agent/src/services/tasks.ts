@@ -312,10 +312,6 @@ export function toTaskSummaryV2(definition: TaskDefinitionV2): TaskSummary {
   }
 }
 
-// ============================================================================
-// Task YAML v2 支持
-// ============================================================================
-
 function asPositiveIntWithDefault(value: unknown, defaultValue: number): number {
   if (typeof value === 'number' && Number.isInteger(value) && value > 0)
     return value

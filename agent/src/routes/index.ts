@@ -37,12 +37,10 @@ export function setupRoutes(
   bus: EventBus,
   runManager: RunManager,
 ) {
-  // Health check
   app.get('/health', (c) => {
     return c.json({ status: 'ok', dbPath: config.dbPath })
   })
 
-  // SSE event stream
   app.get('/api/events', (c) => {
     return new Promise<Response>((resolve) => {
       const headers = new Headers({
@@ -58,7 +56,6 @@ export function setupRoutes(
 
           controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'connected' })}\n\n`))
 
-          // 订阅事件
           const unsubscribe = bus.subscribe((event) => {
             try {
               controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`))
@@ -69,7 +66,6 @@ export function setupRoutes(
             }
           })
 
-          // 清理
           c.req.raw.signal.addEventListener('abort', () => {
             unsubscribe()
           })
@@ -80,7 +76,6 @@ export function setupRoutes(
     })
   })
 
-  // 列出任务
   app.get('/api/repos/:repo/tasks', async (c) => {
     const repo = validateRepoName(c.req.param('repo'))
     const ref = c.req.query('ref') || getDefaultRef(config, repo)
@@ -92,7 +87,6 @@ export function setupRoutes(
     return c.json({ repo, ref, tasks, total: tasks.length })
   })
 
-  // 上传任务文件
   app.post('/api/repos/:repo/tasks/upload', async (c) => {
     const repo = validateRepoName(c.req.param('repo'))
     const body = await c.req.json() as { filePath?: string, content?: string, ref?: string }
@@ -110,7 +104,6 @@ export function setupRoutes(
     return c.json({ repo, ref, filePath, message: 'Task file uploaded' })
   })
 
-  // 删除任务文件
   app.delete('/api/repos/:repo/tasks/delete', async (c) => {
     const repo = validateRepoName(c.req.param('repo'))
     const query = c.req.query('filePath')
@@ -128,7 +121,6 @@ export function setupRoutes(
     return c.json({ repo, ref, filePath, message: 'Task file deleted' })
   })
 
-  // Workspace state
   app.get('/api/repos/:repo/workspace-state', async (c) => {
     const repo = validateRepoName(c.req.param('repo'))
     const lock = store.getActiveRepoLock(repo)
@@ -141,7 +133,6 @@ export function setupRoutes(
     })
   })
 
-  // Start task
   app.post('/api/repos/:repo/tasks/start', async (c) => {
     const repo = validateRepoName(c.req.param('repo'))
     const body = await c.req.json() as { taskPath?: string, ref?: string }
@@ -251,10 +242,7 @@ export function setupRoutes(
       status: run.status,
       workspacePath: run.workspace_path,
     })
-    // Start run in background with error handling
     runManager.startRun(run.id).catch((error) => {
-      // Error is already logged and run status is updated in startRun
-      // This catch prevents unhandled promise rejection
       console.error('[routes] startRun failed:', error)
     })
 
@@ -265,13 +253,11 @@ export function setupRoutes(
     }, 202)
   })
 
-  // 列出运行
   app.get('/api/runs', (c) => {
     const runs = store.listRuns(100)
     return c.json({ runs, total: runs.length })
   })
 
-  // 获取运行详情
   app.get('/api/runs/:runId', (c) => {
     const runId = c.req.param('runId')
     const run = store.getRun(runId)
@@ -286,7 +272,6 @@ export function setupRoutes(
     })
   })
 
-  // 恢复运行
   app.post('/api/runs/:runId/resume', async (c) => {
     const runId = c.req.param('runId')
     const run = store.getRun(runId)
@@ -316,7 +301,6 @@ export function setupRoutes(
     }, 202)
   })
 
-  // 批准运行
   app.post('/api/runs/:runId/approve', async (c) => {
     const runId = c.req.param('runId')
     const run = store.getRun(runId)
@@ -339,7 +323,6 @@ export function setupRoutes(
     }, 202)
   })
 
-  // 拒绝运行
   app.post('/api/runs/:runId/reject', async (c) => {
     const runId = c.req.param('runId')
     const run = store.getRun(runId)
@@ -362,7 +345,6 @@ export function setupRoutes(
     }, 202)
   })
 
-  // 重试运行
   app.post('/api/runs/:runId/continue', async (c) => {
     const runId = c.req.param('runId')
     const run = store.getRun(runId)
@@ -462,7 +444,6 @@ export function setupRoutes(
     }, 202)
   })
 
-  // 释放运行
   app.post('/api/runs/:runId/release', async (c) => {
     const runId = c.req.param('runId')
     const run = store.getRun(runId)
@@ -477,7 +458,6 @@ export function setupRoutes(
       })
     }
 
-    // 对于 running 状态的任务，触发协作式取消
     if (run.status === RUN_STATUS.running) {
       const cancelled = runManager.cancelRun(run.id)
       if (!cancelled) {
