@@ -22,6 +22,18 @@ const { data, status, error, refresh } = useFetch<AiRunDetailResponse>(
 const loading = computed(() => status.value === 'pending')
 const run = computed(() => data.value?.run || null)
 const events = computed(() => data.value?.events || [])
+const executorBudget = computed(() => {
+  const budgetEvent = [...events.value]
+    .reverse()
+    .find(event => event.type === 'run.started' || event.type === 'run.retry' || event.type === 'run.continuation_started')
+  const payload = budgetEvent?.payload || {}
+  return {
+    maxTurns: typeof payload.maxTurns === 'number' ? payload.maxTurns : null,
+    timeoutMs: typeof payload.timeoutMs === 'number' ? payload.timeoutMs : null,
+    continuationsUsed: typeof payload.continuationsUsed === 'number' ? payload.continuationsUsed : null,
+    maxContinuations: typeof payload.maxContinuations === 'number' ? payload.maxContinuations : null,
+  }
+})
 
 interface UiEvent {
   key: string
@@ -56,6 +68,8 @@ function toUiEvent(raw: any, isLive = false): UiEvent {
       message = 'Connected to event stream'
     else if (type === 'run.waiting_approval')
       message = 'Run waiting for approval'
+    else if (type === 'run.waiting_continuation')
+      message = 'Run waiting for continuation'
     else message = JSON.stringify(raw.payload ?? raw)
   }
   const runId = raw.run_id || raw.runId || ''
@@ -144,6 +158,7 @@ const actionSuccess = ref('')
 
 // 状态判断
 const isWaitingApproval = computed(() => run.value?.status === 'waiting_approval')
+const isWaitingContinuation = computed(() => run.value?.status === 'waiting_continuation')
 const isSystemInterrupted = computed(() => run.value?.status === 'system_interrupted')
 const isTerminal = computed(() => {
   if (!run.value)
@@ -226,6 +241,17 @@ function formatDuration(createdAt: string, updatedAt: string) {
   return `${Math.floor(diff / 1000)}s`
 }
 
+function formatDurationMs(ms: number) {
+  const minutes = Math.round(ms / 60000)
+  const hours = Math.floor(minutes / 60)
+  const days = Math.floor(hours / 24)
+  if (days > 0)
+    return `${days}d ${hours % 24}h`
+  if (hours > 0)
+    return `${hours}h ${minutes % 60}m`
+  return `${minutes}m`
+}
+
 // 状态标签样式
 function getStatusClass(status: string) {
   switch (status) {
@@ -235,6 +261,7 @@ function getStatusClass(status: string) {
     case 'system_interrupted':
       return 'text-red-700 bg-red-100 dark:text-red-300 dark:bg-red-900/30'
     case 'waiting_approval':
+    case 'waiting_continuation':
       return 'text-amber-700 bg-amber-100 dark:text-amber-300 dark:bg-amber-900/30'
     case 'running':
     case 'queued':
@@ -316,6 +343,21 @@ function getStatusClass(status: string) {
               @click="executeAction('reject')"
             />
           </template>
+          <template v-if="isWaitingContinuation">
+            <ActionButton
+              label="Continue"
+              icon="i-carbon-play"
+              :loading="actionLoading === 'continue'"
+              @click="executeAction('continue')"
+            />
+            <ActionButton
+              label="Stop"
+              icon="i-carbon-stop"
+              variant="danger"
+              :loading="actionLoading === 'stop'"
+              @click="executeAction('stop')"
+            />
+          </template>
           <ActionButton
             v-if="isSystemInterrupted"
             label="Retry"
@@ -324,7 +366,7 @@ function getStatusClass(status: string) {
             @click="executeAction('retry')"
           />
           <ActionButton
-            v-if="['running', 'queued', 'preparing'].includes(run.status)"
+            v-if="['running', 'queued', 'preparing', 'waiting_continuation'].includes(run.status)"
             label="Release"
             icon="i-carbon-close"
             variant="danger"
@@ -410,6 +452,24 @@ function getStatusClass(status: string) {
           <div class="text-sm mt-1">
             {{ formatDuration(run.created_at, run.updated_at) || '-' }}
           </div>
+          <template v-if="executorBudget.maxTurns || executorBudget.timeoutMs">
+            <div class="text-xs text-gray-500 mt-4">
+              Executor Budget
+            </div>
+            <div class="text-sm mt-1">
+              <span v-if="executorBudget.maxTurns">{{ executorBudget.maxTurns }} turns</span>
+              <span v-if="executorBudget.maxTurns && executorBudget.timeoutMs"> / </span>
+              <span v-if="executorBudget.timeoutMs">{{ formatDurationMs(executorBudget.timeoutMs) }}</span>
+            </div>
+          </template>
+          <template v-if="executorBudget.maxContinuations != null">
+            <div class="text-xs text-gray-500 mt-4">
+              Continuations
+            </div>
+            <div class="text-sm mt-1">
+              {{ executorBudget.continuationsUsed || 0 }} / {{ executorBudget.maxContinuations }}
+            </div>
+          </template>
           <div v-if="run.max_iterations != null" class="text-xs text-gray-500 mt-4">
             Iteration
           </div>

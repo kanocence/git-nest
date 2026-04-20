@@ -1,11 +1,26 @@
 FROM node:24-bookworm-slim
 
-ARG GO_TARBALL_URL=https://go.dev/dl/go1.24.13.linux-amd64.tar.gz
+ARG GO_VERSION=1.24.13
+ARG GO_TARBALL_URL=
+ARG TARGETARCH
 
 RUN apt-get update -qq && \
     apt-get install -y --no-install-recommends ca-certificates git python3 make g++ ripgrep curl bzip2 && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
+
+# Download static Docker CLI binary (Debian repos don't have docker-ce-cli)
+RUN set -eux; \
+    case "${TARGETARCH:-amd64}" in \
+      amd64) docker_arch="x86_64" ;; \
+      arm64) docker_arch="aarch64" ;; \
+      *) echo "Unsupported Docker CLI architecture: ${TARGETARCH:-unknown}" >&2; exit 1 ;; \
+    esac; \
+    curl -fsSL "https://download.docker.com/linux/static/stable/${docker_arch}/docker-27.3.1.tgz" -o /tmp/docker.tgz && \
+    tar -xzf /tmp/docker.tgz -C /tmp docker/docker && \
+    mv /tmp/docker/docker /usr/local/bin/docker && \
+    rm -rf /tmp/docker /tmp/docker.tgz && \
+    docker --version
 
 RUN npm install -g pnpm@10.8.0 && npm cache clean --force
 
@@ -13,30 +28,17 @@ RUN npm install -g pnpm@10.8.0 && npm cache clean --force
 # Trust Git Nest data mounts so git worktree/status can operate on those repos.
 RUN git config --system --add safe.directory "*"
 
-RUN curl -fsSL "$GO_TARBALL_URL" -o /tmp/go.tar.gz && \
+RUN set -eux; \
+    case "${TARGETARCH:-amd64}" in \
+      amd64) go_arch="amd64" ;; \
+      arm64) go_arch="arm64" ;; \
+      *) echo "Unsupported Go architecture: ${TARGETARCH:-unknown}" >&2; exit 1 ;; \
+    esac; \
+    go_url="${GO_TARBALL_URL:-https://go.dev/dl/go${GO_VERSION}.linux-${go_arch}.tar.gz}"; \
+    curl -fsSL "$go_url" -o /tmp/go.tar.gz && \
     tar -C /usr/local -xzf /tmp/go.tar.gz && \
     rm /tmp/go.tar.gz
 ENV PATH=$PATH:/usr/local/go/bin
-
-# install Goose CLI (non-interactive; avoid goose-configure during docker build)
-RUN set -eux; \
-    curl -fsSL \
-      -o /tmp/goose.tar.bz2 \
-      https://github.com/aaif-goose/goose/releases/download/stable/goose-x86_64-unknown-linux-gnu.tar.bz2; \
-    tar -xjf /tmp/goose.tar.bz2 -C /usr/local/bin --no-same-owner; \
-    rm -f /tmp/goose.tar.bz2; \
-    if [ ! -f /usr/local/bin/goose ]; then \
-      goose_path="$(find /usr/local/bin -maxdepth 3 -type f -name goose -print -quit)"; \
-      test -n "$goose_path"; \
-      mv "$goose_path" /usr/local/bin/goose; \
-    fi; \
-    chmod 0755 /usr/local/bin/goose; \
-    /usr/local/bin/goose --version
-
-# install Goose CLI from local file
-# COPY ./goose /usr/local/bin/goose
-# RUN chmod +x /usr/local/bin/goose && \
-#     goose --version
 
 WORKDIR /app
 

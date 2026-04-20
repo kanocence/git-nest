@@ -5,6 +5,7 @@ export const RUN_STATUS: Record<string, RunStatus> = {
   preparing: 'preparing',
   running: 'running',
   waitingApproval: 'waiting_approval',
+  waitingContinuation: 'waiting_continuation',
   completed: 'completed',
   failed: 'failed',
   cancelled: 'cancelled',
@@ -23,6 +24,7 @@ export const LOCKED_RUN_STATUSES: Set<RunStatus> = new Set([
   RUN_STATUS.preparing,
   RUN_STATUS.running,
   RUN_STATUS.waitingApproval,
+  RUN_STATUS.waitingContinuation,
 ])
 
 export function isTerminalRunStatus(status: RunStatus): boolean {

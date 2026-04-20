@@ -1,4 +1,5 @@
 import type { Config } from '../types'
+import { execSync } from 'node:child_process'
 import { mkdirSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -27,6 +28,29 @@ function envInt(name: string, defaultValue: number): number {
   const parsed = Number.parseInt(raw, 10)
   return Number.isFinite(parsed) && parsed > 0 ? parsed : defaultValue
 }
+function envStr(name: string, defaultValue: string = ''): string {
+  return process.env[name]?.trim() || defaultValue
+}
+function requireAbsoluteDir(name: string): string {
+  const raw = process.env[name]?.trim()
+  if (!raw)
+    throw new Error(`${name} is required and must be an absolute path.`)
+  if (!path.isAbsolute(raw))
+    throw new Error(`${name} must be an absolute path. Got: ${raw}`)
+  return raw
+}
+function checkDockerAvailable(): void {
+  try {
+    execSync('docker info', { stdio: 'pipe', timeout: 10000 })
+  }
+  catch (err: any) {
+    const stderr = err.stderr?.toString() || ''
+    if (stderr.includes('permission denied') || stderr.includes('Got permission denied')) {
+      throw new Error('Docker socket permission denied. Ensure the user is in the docker group or set DOCKER_GID in your .env file.')
+    }
+    throw new Error('Docker is not available. Ensure docker is installed, the daemon is running, and the user has access permissions.')
+  }
+}
 
 export function loadConfig(): Config {
   const defaultRoot = path.join(process.cwd(), 'data')
@@ -41,6 +65,12 @@ export function loadConfig(): Config {
   if (!apiSecret && !allowInsecureNoAuth) {
     throw new Error('API_SECRET is required. Set ALLOW_INSECURE_NO_AUTH=1 only for local development.')
   }
+
+  checkDockerAvailable()
+
+  const hermesHostWorkspaceDir = requireAbsoluteDir('HERMES_HOST_WORKSPACE_DIR')
+  const hermesHostStateDir = requireAbsoluteDir('HERMES_HOST_AGENT_STATE_DIR')
+  const hermesHostDataDir = requireAbsoluteDir('HERMES_HOST_DATA_DIR')
 
   return {
     port: envInt('PORT', 3002),
@@ -61,8 +91,17 @@ export function loadConfig(): Config {
     // Executor configuration
     executorMaxTurns: envInt('AGENT_EXECUTOR_MAX_TURNS', 30),
     executorTimeoutMs: envInt('AGENT_EXECUTOR_TIMEOUT_MS', 30 * 60 * 1000), // 30 minutes
-    // Goose model configuration (passed as CLI args and env vars)
-    gooseProvider: process.env.GOOSE_PROVIDER || process.env.AGENT_MODEL_PROVIDER || 'openai',
-    gooseModel: process.env.GOOSE_MODEL || process.env.AGENT_MODEL || process.env.OPENAI_MODEL || 'gpt-4o-mini',
+    executorMaxContinuations: envInt('AGENT_EXECUTOR_MAX_CONTINUATIONS', 2),
+    // Hermes CLI configuration
+    hermesImage: envStr('HERMES_IMAGE', 'nousresearch/hermes-agent:latest'),
+    hermesToolsets: envStr('HERMES_TOOLSETS', 'file,terminal'),
+    hermesProvider: envStr('HERMES_PROVIDER'),
+    hermesModel: envStr('HERMES_MODEL'),
+    hermesHostWorkspaceDir,
+    hermesHostStateDir,
+    hermesHostDataDir,
+    runtimeUid: envStr('PUID', '1000'),
+    runtimeGid: envStr('PGID', '1000'),
+    dockerGid: envStr('DOCKER_GID'),
   }
 }

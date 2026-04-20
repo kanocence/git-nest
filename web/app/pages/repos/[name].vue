@@ -120,6 +120,15 @@ function getLatestTaskRun(taskPath: string) {
   return runs.length ? runs[0] : null
 }
 
+function formatMs(ms: number) {
+  const minutes = Math.round(ms / 60000)
+  const hours = Math.floor(minutes / 60)
+  const remainingMinutes = minutes % 60
+  if (hours > 0)
+    return remainingMinutes > 0 ? `${hours}h ${remainingMinutes}m` : `${hours}h`
+  return `${minutes}m`
+}
+
 // SSE 实时日志
 const liveEvents = ref<Array<{ type: string, message: string, createdAt: string }>>([])
 const showLiveLogs = ref(false)
@@ -155,6 +164,8 @@ watch(sseData, (newData) => {
         message = 'Connected to event stream'
       else if (type === 'run.waiting_approval')
         message = 'Run waiting for approval'
+      else if (type === 'run.waiting_continuation')
+        message = 'Run waiting for continuation'
       else
         message = JSON.stringify(event.payload ?? event)
     }
@@ -172,7 +183,7 @@ watch(sseData, (newData) => {
       showLiveLogs.value = true
 
     // 收到终态事件时刷新 workspace 和 runs
-    if (['run.completed', 'run.failed', 'run.cancelled', 'run.released'].includes(type)) {
+    if (['run.completed', 'run.failed', 'run.cancelled', 'run.released', 'run.waiting_approval', 'run.waiting_continuation'].includes(type)) {
       refreshAiWorkspace()
       refreshAiRuns()
     }
@@ -551,7 +562,7 @@ async function copyUrl() {
           </span>
         </div>
         <div class="text-xs text-gray-500 dark:text-gray-400">
-          Goose runs valid tasks in the workspace. Web approval, retry, and release controls are available in the task detail page.
+          AI executor runs valid tasks in the workspace. Web approval, retry, and release controls are available in the task detail page.
         </div>
         <div v-if="!canStartAiTask" class="text-xs text-amber-700 dark:text-amber-300">
           <span v-if="aiWorkspace?.occupiedByAi">Starting is disabled while another AI run is occupying this repository.</span>
@@ -606,7 +617,15 @@ async function copyUrl() {
           class="p-4 border border-gray-200 rounded-lg dark:border-gray-700"
         >
           <div class="flex flex-wrap gap-2 items-center justify-between">
-            <div class="font-600">
+            <NuxtLink
+              v-if="getLatestTaskRun(task.path)"
+              :to="`/tasks/${getLatestTaskRun(task.path)!.id}`"
+              class="text-teal-600 font-600 hover:underline"
+              title="Open latest run"
+            >
+              {{ task.title }}
+            </NuxtLink>
+            <div v-else class="font-600">
               {{ task.title }}
             </div>
             <div class="flex gap-2 items-center">
@@ -627,6 +646,18 @@ async function copyUrl() {
                 class="text-xs text-gray-600 px-2 py-0.5 rounded-full bg-gray-100 dark:text-gray-300 dark:bg-gray-800"
               >
                 Max {{ task.maxIterations }}
+              </span>
+              <span
+                v-if="task.executor"
+                class="text-xs text-cyan-700 px-2 py-0.5 rounded-full bg-cyan-100 dark:text-cyan-300 dark:bg-cyan-900/30"
+              >
+                {{ task.executor.max_turns }} turns / {{ formatMs(task.executor.timeout) }}
+              </span>
+              <span
+                v-if="task.executor?.max_continuations"
+                class="text-xs text-amber-700 px-2 py-0.5 rounded-full bg-amber-100 dark:text-amber-300 dark:bg-amber-900/30"
+              >
+                {{ task.executor.max_continuations }} continuations
               </span>
               <span
                 v-if="task.acceptance?.commands?.length"

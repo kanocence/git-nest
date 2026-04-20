@@ -187,6 +187,20 @@ describe('database Operations', () => {
       const events = db.listRunEvents('run-null-payload', 10)
       expect(events[0].payload).toBeNull()
     })
+
+    it('should preserve raw payload when event JSON is corrupted', () => {
+      const event = db.appendRunEvent({
+        runId: 'run-corrupted-payload',
+        type: 'test.event',
+        message: 'Test',
+        payload: { original: true },
+      })
+      db.db.prepare('UPDATE run_events SET payload = ? WHERE id = ?').run('{bad-json', event.id)
+
+      const events = db.listRunEvents('run-corrupted-payload', 10)
+
+      expect(events[0].payload).toEqual({ raw: '{bad-json' })
+    })
   })
 
   describe('reset Database', () => {

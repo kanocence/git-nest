@@ -16,7 +16,6 @@ import { createRunManager } from './services/run-manager'
 import { createEventBus } from './utils/events'
 import { isTerminalRunStatus, RUN_STATUS } from './utils/status'
 
-// 创建应用上下文
 interface AppContext {
   Variables: {
     config: Config
@@ -28,27 +27,21 @@ interface AppContext {
 
 const app = new Hono<AppContext>()
 
-// 中间件
 app.use(honoLogger())
 app.use(cors())
 
-// 初始化依赖
 const config = loadConfig()
 const store = createDb(config.dbPath)
 const bus = createEventBus()
 const runManager = createRunManager(config, store, bus)
 
-// 应用中间件
 app.use(createAuthMiddleware(config))
 app.onError(errorHandler)
 
-// 设置路由
 setupRoutes(app, config, store, bus, runManager)
 
-// 恢复中断的运行
 recoverInterruptedRuns()
 
-// 恢复队列中的运行
 runManager.resumeQueuedRuns()
 
 function recoverInterruptedRuns() {
@@ -66,22 +59,20 @@ function recoverInterruptedRuns() {
     if (run.status === RUN_STATUS.queued)
       continue
 
-    if (run.status === RUN_STATUS.waitingApproval) {
-      // With persistent checkpoints, waiting_approval runs can be resumed
-      // Keep the lock and status, user can resume via API
+    if (run.status === RUN_STATUS.waitingApproval || run.status === RUN_STATUS.waitingContinuation) {
+      // Approval/continuation states are recoverable when their persisted state exists.
       const approvalState = store.getApprovalState(run.id)
       if (approvalState) {
-        recovered.push({ repo: run.repo, runId: run.id, action: 'waiting_approval_with_state_preserved' })
+        recovered.push({ repo: run.repo, runId: run.id, action: `${run.status}_with_state_preserved` })
       }
       else {
-        // No approval state found, mark as interrupted
         store.updateRunStatus(
           run.id,
           RUN_STATUS.systemInterrupted,
-          'Run was waiting for approval but approval state was lost. Please use retry to restart.',
+          `Run was ${run.status} but persisted state was lost. Please use retry to restart.`,
         )
         store.deleteRepoLock(lock.repo)
-        recovered.push({ repo: run.repo, runId: run.id, action: 'waiting_approval_to_interrupted' })
+        recovered.push({ repo: run.repo, runId: run.id, action: `${run.status}_to_interrupted` })
       }
       continue
     }
@@ -106,7 +97,6 @@ function recoverInterruptedRuns() {
   }
 }
 
-// 启动服务器
 info(`[agent] listening on :${config.port}`)
 serve({
   fetch: app.fetch,

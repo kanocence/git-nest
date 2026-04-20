@@ -1,79 +1,46 @@
 import type { DbApi } from '../db'
 import type { Config, RunRecord, RunStatus, TaskDefinitionV2 } from '../types'
 import type { EventBus } from '../utils/events'
-import type { CodingExecutor, CodingExecutorEvent, CodingExecutorInput } from './executors/types'
+import type { HermesRunner, HermesRunParams, HermesRunResult } from './hermes-runner'
 import { info, error as logError } from '../logger'
 import { AppError } from '../utils/errors'
 import { RUN_STATUS } from '../utils/status'
-import { createExecutor } from './executors'
+import { validateAcceptanceCommand } from './acceptance'
 import { cleanupRunWorkspace, commitAndPushRunWorkspace, getRunWorkspacePath, hasRunWorkspaceChanges, readTaskFile, runRunWorkspaceCommand } from './git'
+import { createHermesRunner } from './hermes-runner'
 import { parseTaskDefinitionV2 } from './tasks'
-
-// Allowed acceptance command prefixes
-const ALLOWED_COMMAND_PREFIXES = ['npm', 'pnpm', 'yarn', 'node', 'npx']
-const SHELL_META_CHARS = /[;|&$`\n]/
-const WHITESPACE_SPLIT_RE = /\s+/
-
-interface CommandValidation {
-  valid: boolean
-  executable: string
-  args: string[]
-  reason?: string
-}
-
-function validateAcceptanceCommand(command: string): CommandValidation {
-  const trimmed = command.trim()
-
-  // Parse command first (needed for return type)
-  const parts = trimmed.split(WHITESPACE_SPLIT_RE)
-  const executable = parts[0] || ''
-  const args = parts.slice(1)
-
-  // Reject shell metacharacters
-  if (SHELL_META_CHARS.test(trimmed)) {
-    return { valid: false, executable, args, reason: 'Command contains shell metacharacters' }
-  }
-
-  // Reject absolute paths
-  if (trimmed.startsWith('/') || trimmed.startsWith('\\') || trimmed.includes('..')) {
-    return { valid: false, executable, args, reason: 'Absolute paths and parent directory references are not allowed' }
-  }
-
-  // Check if executable is in allowlist
-  const isAllowed = ALLOWED_COMMAND_PREFIXES.some(prefix =>
-    executable === prefix || executable.startsWith(`${prefix}.`),
-  )
-
-  if (!isAllowed) {
-    return { valid: false, executable, args, reason: `Command '${executable}' is not in the allowed list (${ALLOWED_COMMAND_PREFIXES.join(', ')})` }
-  }
-
-  return { valid: true, executable, args }
-}
 
 export interface RunManager {
   startRun: (runId: string) => Promise<void>
   resumeRun: (runId: string, decision: 'approved' | 'rejected') => Promise<void>
+  continueRun: (runId: string, decision: 'continue' | 'stop') => Promise<void>
   retryRun: (runId: string) => Promise<void>
   cancelRun: (runId: string) => boolean
   resumeQueuedRuns: () => void
 }
 
+interface ContinuationState {
+  continuationsUsed: number
+  reason: string
+  summary: string
+}
+
 interface RunContext {
   run: RunRecord
   task: TaskDefinitionV2
-  executor: CodingExecutor
+  hermesRunner: HermesRunner
   abortController: AbortController
+  continuation?: ContinuationState
 }
 
 export function createRunManager(
   config: Config,
   store: DbApi,
   bus: EventBus,
-  executorOverride?: CodingExecutor,
+  hermesRunnerOverride?: HermesRunner,
 ): RunManager {
   const activeRuns = new Map<string, RunContext>()
-  const executor = executorOverride || createExecutor(config)
+  const hermesRunner = hermesRunnerOverride || createHermesRunner(config)
 
   function recordEvent(
     run: RunRecord,
@@ -114,6 +81,108 @@ export function createRunManager(
       lockedAt: store.getActiveRepoLock(run.repo)?.locked_at || run.created_at,
       updatedAt: new Date().toISOString(),
     })
+  }
+
+  function getMaxContinuations(task: TaskDefinitionV2): number {
+    return task.executor?.max_continuations ?? config.executorMaxContinuations
+  }
+
+  function buildExecutorPrompt(task: TaskDefinitionV2, continuation?: ContinuationState): string {
+    const basePrompt = task.description || `Execute task: ${task.title}`
+    if (!continuation)
+      return basePrompt
+
+    return `${basePrompt}
+
+You are continuing a previous attempt for this task.
+Reason: ${continuation.reason}
+Previous summary: ${continuation.summary || 'No summary was provided.'}
+
+Continue from the current workspace state. Inspect existing changes first, do not revert unrelated work, and finish the remaining task as directly as possible.`
+  }
+
+  function parseContinuationState(runId: string, strict: boolean): ContinuationState {
+    const approvalState = store.getApprovalState(runId)
+    if (!approvalState) {
+      if (strict) {
+        throw new AppError(409, 'CONTINUATION_STATE_MISSING', 'Continuation state is missing; retry the run to rebuild continuation context')
+      }
+
+      return { continuationsUsed: 0, reason: 'Continuation state missing', summary: '' }
+    }
+
+    try {
+      const parsed = JSON.parse(approvalState.prior_outputs) as Partial<ContinuationState>
+      const continuationsUsed = parsed.continuationsUsed
+      if (
+        strict
+        && (typeof continuationsUsed !== 'number' || !Number.isInteger(continuationsUsed) || continuationsUsed < 0)
+      ) {
+        throw new AppError(409, 'CONTINUATION_STATE_INVALID', 'Continuation state is invalid; retry the run to rebuild continuation context')
+      }
+
+      return {
+        continuationsUsed: typeof continuationsUsed === 'number' ? continuationsUsed : 0,
+        reason: typeof parsed.reason === 'string' ? parsed.reason : 'Executor budget was exhausted',
+        summary: typeof parsed.summary === 'string' ? parsed.summary : '',
+      }
+    }
+    catch (error) {
+      if (error instanceof AppError)
+        throw error
+
+      if (strict) {
+        throw new AppError(409, 'CONTINUATION_STATE_INVALID', 'Continuation state is invalid; retry the run to rebuild continuation context')
+      }
+
+      return { continuationsUsed: 0, reason: 'Continuation state could not be parsed', summary: '' }
+    }
+  }
+
+  function pauseForContinuation(
+    run: RunRecord,
+    task: TaskDefinitionV2,
+    result: HermesRunResult,
+    continuationsUsed: number,
+  ): boolean {
+    const maxContinuations = getMaxContinuations(task)
+    if (continuationsUsed >= maxContinuations)
+      return false
+
+    const reason = result.timedOut
+      ? 'Hermes execution timeout was reached'
+      : result.summary || 'Hermes executor requested continuation'
+    const summary = result.summary || reason
+
+    run = store.updateRunStatus(run.id, RUN_STATUS.waitingContinuation, summary)!
+    updateLock(run, RUN_STATUS.waitingContinuation)
+    store.createApprovalState({
+      runId: run.id,
+      nodeId: 'continuation',
+      role: 'continuation_approval',
+      question: `Continue task "${task.title}" with another executor budget?`,
+      priorOutputs: {
+        continuationsUsed,
+        maxContinuations,
+        reason,
+        summary,
+        exitCode: result.exitCode,
+        rawLogPath: result.rawLogPath,
+      },
+    })
+
+    recordEvent(run, {
+      type: 'run.waiting_continuation',
+      message: 'Executor budget was exhausted; waiting for continue or stop decision',
+      payload: {
+        continuationsUsed,
+        maxContinuations,
+        reason,
+        summary,
+        exitCode: result.exitCode,
+      },
+    })
+    return true
   }
 
   async function runAcceptanceCommands(
@@ -255,7 +324,7 @@ export function createRunManager(
       throw new AppError(500, 'RUN_CONTEXT_LOST', 'Run context was lost')
     }
 
-    const { run: initialRun, task, executor, abortController } = context
+    const { run: initialRun, task, hermesRunner, abortController, continuation } = context
     let run = initialRun
 
     // Run-level watchdog: fires 1 min after the executor's own timeout to force-abort
@@ -274,70 +343,64 @@ export function createRunManager(
       updateLock(run, RUN_STATUS.running)
 
       recordEvent(run, {
-        type: isRetry ? 'run.retry' : 'run.started',
-        message: isRetry ? 'Run execution retried' : 'Run execution started',
+        type: continuation ? 'run.continuation_started' : isRetry ? 'run.retry' : 'run.started',
+        message: continuation ? 'Run execution continued with another budget' : isRetry ? 'Run execution retried' : 'Run execution started',
         payload: {
-          executor: executor.name,
+          executor: 'hermes',
           task: task.title,
+          maxTurns: task.executor?.max_turns || config.executorMaxTurns,
+          timeoutMs: task.executor?.timeout || config.executorTimeoutMs,
+          continuationsUsed: continuation?.continuationsUsed || 0,
+          maxContinuations: getMaxContinuations(task),
         },
       })
 
-      // Build executor input
-      const executorInput: CodingExecutorInput = {
+      // Build runner params
+      const runParams: HermesRunParams = {
         runId: run.id,
         repo: run.repo,
         workspacePath: getRunWorkspacePath(config, run.repo, run.id),
-        prompt: task.description || `Execute task: ${task.title}`,
-        acceptanceCommands: task.acceptance?.commands || [],
-        model: {
-          provider: config.gooseProvider,
-          model: config.gooseModel,
-        },
+        prompt: buildExecutorPrompt(task, continuation),
         maxTurns: task.executor?.max_turns || config.executorMaxTurns,
         timeoutMs: task.executor?.timeout || config.executorTimeoutMs,
-        env: {},
+        toolsets: config.hermesToolsets,
+        provider: config.hermesProvider,
+        model: config.hermesModel,
       }
 
-      // Execute with executor
-      const eventStream = executor.run(executorInput, abortController.signal)
+      // Execute with HermesRunner
+      const finalResult = await hermesRunner.run(
+        runParams,
+        abortController.signal,
+        (chunk: string) => {
+          recordEvent(run, {
+            type: 'run.executor_progress',
+            message: chunk,
+          })
+        },
+      )
 
-      // Consume all events from executor
-      const finalResult = await (async (): Promise<import('./executors/types').CodingExecutorResult> => {
-        let result = await eventStream.next()
-
-        while (!result.done) {
-          if (abortController.signal.aborted) {
-            throw new AppError(499, 'RUN_CANCELLED', 'Run was cancelled by user')
-          }
-
-          // Forward executor events to our event system
-          handleExecutorEvent(run, result.value)
-
-          result = await eventStream.next()
-        }
-
-        if (!result.value) {
-          throw new AppError(500, 'EXECUTOR_ERROR', 'Executor did not return a result')
-        }
-
-        return result.value
-      })()
+      recordEvent(run, {
+        type: 'run.executor_completed',
+        message: `Hermes executor ${finalResult.status}`,
+        payload: {
+          status: finalResult.status,
+          exitCode: finalResult.exitCode,
+          timedOut: finalResult.timedOut,
+          rawLogPath: finalResult.rawLogPath,
+        },
+      })
 
       if (finalResult.status !== 'completed') {
+        if (finalResult.continuationEligible && pauseForContinuation(run, task, finalResult, continuation?.continuationsUsed || 0)) {
+          return
+        }
+
         const code = finalResult.status === 'cancelled' ? 'RUN_CANCELLED' : 'EXECUTOR_FAILED'
         const statusCode = finalResult.status === 'cancelled' ? 499 : 500
-        throw new AppError(statusCode, code, finalResult.summary || `Executor ${finalResult.status}`, {
+        throw new AppError(statusCode, code, finalResult.summary || `Hermes ${finalResult.status}`, {
           exitCode: finalResult.exitCode,
           rawLogPath: finalResult.rawLogPath,
-        })
-      }
-
-      // Warn if executor reported tool errors despite a clean exit
-      if (finalResult.hasToolErrors) {
-        recordEvent(run, {
-          type: 'run.executor_warning',
-          message: 'Executor completed with tool errors - output may be incomplete',
-          payload: { hasToolErrors: true, rawLogPath: finalResult.rawLogPath },
         })
       }
 
@@ -398,7 +461,6 @@ export function createRunManager(
       const isAcceptanceFailed = error instanceof AppError && error.code === 'ACCEPTANCE_FAILED'
 
       // Note: We do NOT commit on acceptance failure - changes stay in workspace for inspection
-      // Only log the failure without pushing to remote
 
       if (isCancelled) {
         run = store.updateRunStatus(runId, RUN_STATUS.cancelled, message)!
@@ -427,53 +489,6 @@ export function createRunManager(
     finally {
       clearTimeout(runTimeoutId)
       activeRuns.delete(runId)
-    }
-  }
-
-  function handleExecutorEvent(run: RunRecord, event: CodingExecutorEvent): void {
-    switch (event.type) {
-      case 'log':
-        recordEvent(run, {
-          type: 'run.executor_log',
-          message: event.message,
-          payload: event.payload,
-        })
-        break
-      case 'action':
-        recordEvent(run, {
-          type: 'run.executor_action',
-          message: event.message,
-          payload: event.payload,
-        })
-        break
-      case 'tool':
-        recordEvent(run, {
-          type: 'run.executor_tool',
-          message: event.message,
-          payload: event.payload,
-        })
-        break
-      case 'error':
-        recordEvent(run, {
-          type: 'run.executor_error',
-          message: event.message,
-          payload: event.payload,
-        })
-        break
-      case 'progress':
-        recordEvent(run, {
-          type: 'run.executor_progress',
-          message: event.message,
-          payload: event.payload,
-        })
-        break
-      case 'completed':
-        recordEvent(run, {
-          type: 'run.executor_completed',
-          message: event.message,
-          payload: event.payload,
-        })
-        break
     }
   }
 
@@ -519,7 +534,7 @@ export function createRunManager(
     const context: RunContext = {
       run,
       task,
-      executor,
+      hermesRunner,
       abortController,
     }
 
@@ -582,6 +597,63 @@ export function createRunManager(
     }
   }
 
+  async function continueRun(runId: string, decision: 'continue' | 'stop'): Promise<void> {
+    let run = store.getRun(runId)
+    if (!run) {
+      throw new AppError(404, 'RUN_NOT_FOUND', 'Run not found')
+    }
+
+    if (run.status !== RUN_STATUS.waitingContinuation) {
+      throw new AppError(409, 'RUN_NOT_WAITING_CONTINUATION', 'Run is not waiting for continuation')
+    }
+
+    if (decision === 'continue' && activeRuns.has(runId)) {
+      throw new AppError(409, 'RUN_ALREADY_ACTIVE', 'Run is already being processed')
+    }
+
+    const continuationState = parseContinuationState(runId, decision === 'continue')
+    recordEvent(run, {
+      type: 'run.continuation_decided',
+      message: `Continuation ${decision}`,
+      payload: { decision, ...continuationState },
+    })
+
+    if (decision === 'stop') {
+      store.deleteApprovalState(runId)
+      activeRuns.get(runId)?.abortController.abort()
+      run = store.updateRunStatus(runId, RUN_STATUS.cancelled, 'Stopped by user after executor budget was exhausted')!
+      store.deleteRepoLock(run.repo)
+      recordEvent(run, {
+        type: 'run.continuation_stopped',
+        message: 'Run stopped after executor budget was exhausted',
+      })
+      return
+    }
+
+    const task = loadTaskForRun(run)
+    const nextContinuation: ContinuationState = {
+      ...continuationState,
+      continuationsUsed: continuationState.continuationsUsed + 1,
+    }
+
+    const abortController = new AbortController()
+    run = store.updateRunStatus(runId, RUN_STATUS.running)!
+    updateLock(run, RUN_STATUS.running)
+
+    activeRuns.set(runId, {
+      run,
+      task,
+      hermesRunner,
+      abortController,
+      continuation: nextContinuation,
+    })
+    store.deleteApprovalState(runId)
+
+    processRun(runId).catch((error) => {
+      logError('[run-manager] continuation execution failed', { runId, error })
+    })
+  }
+
   async function retryRun(runId: string): Promise<void> {
     const run = store.getRun(runId)
     if (!run) {
@@ -607,7 +679,7 @@ export function createRunManager(
     const context: RunContext = {
       run,
       task,
-      executor,
+      hermesRunner,
       abortController,
     }
 
@@ -643,6 +715,7 @@ export function createRunManager(
   return {
     startRun,
     resumeRun,
+    continueRun,
     retryRun,
     cancelRun,
     resumeQueuedRuns,
