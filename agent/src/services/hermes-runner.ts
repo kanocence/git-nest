@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process'
-import { appendFileSync, mkdirSync, writeFileSync } from 'node:fs'
+import { appendFileSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { info, error as logError } from '../logger'
 
@@ -53,6 +53,27 @@ export function createHermesRunner(config: {
       mkdirSync(runDir, { recursive: true })
       const promptPath = path.posix.join(runDir, 'prompt.md')
       const logPath = path.posix.join(runDir, 'hermes.log')
+
+      // 检查 Hermes 数据目录权限
+      try {
+        const stats = statSync(config.hermesHostDataDir)
+        const expectedUid = Number.parseInt(config.runtimeUid, 10)
+        if (stats.uid !== expectedUid) {
+          const errorMessage = `Hermes data directory ${config.hermesHostDataDir} is owned by UID ${stats.uid}, but the container runs as UID ${expectedUid}. This causes Permission denied errors when the container tries to create files in /opt/data. To fix this, run: chown -R ${config.runtimeUid}:${config.runtimeGid} ${config.hermesHostDataDir}`
+          writeFileSync(logPath, `[git-nest] ${errorMessage}\n`, 'utf8')
+          return {
+            status: 'failed',
+            summary: errorMessage,
+            continuationEligible: false,
+            exitCode: null,
+            rawLogPath: logPath,
+            timedOut: false,
+          }
+        }
+      }
+      catch {
+        // 无法读取目录权限信息，继续执行，让 Docker 自行报错
+      }
 
       writeFileSync(promptPath, params.prompt, 'utf8')
       appendFileSync(logPath, `\n[git-nest] Hermes execution started at ${new Date().toISOString()}\n`, 'utf8')
@@ -282,11 +303,25 @@ export function createHermesRunner(config: {
         }
       }
 
+      let errorSummary = exitCode === 127
+        ? 'Docker CLI is not installed or not available in PATH'
+        : `Hermes executor failed with exit code ${exitCode}`
+
+      // 尝试读取日志文件最后 500 字符作为诊断信息
+      try {
+        const logContent = readFileSync(logPath, 'utf8')
+        const lastChunk = logContent.slice(-500).trim()
+        if (lastChunk) {
+          errorSummary += `\n\n--- Last log output ---\n${lastChunk}`
+        }
+      }
+      catch {
+        // 日志文件读取失败，忽略
+      }
+
       return {
         status: 'failed',
-        summary: exitCode === 127
-          ? 'Docker CLI is not installed or not available in PATH'
-          : `Hermes executor failed with exit code ${exitCode}`,
+        summary: errorSummary,
         continuationEligible: false,
         exitCode,
         rawLogPath: logPath,

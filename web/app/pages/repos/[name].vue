@@ -29,13 +29,25 @@ const selectedBranch = ref<string | undefined>(undefined)
 const { commits, loading: logLoading, error: logError, refresh: refreshLog } = useRepoLog(name, 20, selectedBranch)
 const { deleteRepo, loading: deleting } = useRunner()
 
+// 防抖刷新 —— 避免分支切换和 push 事件并发触发重复请求
+const isRefreshingLog = ref(false)
+const debouncedRefreshLog = useDebounceFn(async () => {
+  if (isRefreshingLog.value) return
+  isRefreshingLog.value = true
+  try {
+    await refreshLog()
+  } finally {
+    isRefreshingLog.value = false
+  }
+}, 300)
+
 const { operations, currentOp, isRunning, execute } = useStreamOperation()
 const router = useRouter()
 
 usePushEvents({
   onPush: (event) => {
     if (event.repo === name.value) {
-      refreshLog()
+      debouncedRefreshLog()
     }
   },
 })
@@ -53,6 +65,17 @@ const { data: aiTasks, refresh: refreshAiTasks } = useFetch<AiTaskListResponse>(
     immediate: false,
   },
 )
+
+const isRefreshingAiTasks = ref(false)
+const debouncedRefreshAiTasks = useDebounceFn(async () => {
+  if (isRefreshingAiTasks.value) return
+  isRefreshingAiTasks.value = true
+  try {
+    await refreshAiTasks()
+  } finally {
+    isRefreshingAiTasks.value = false
+  }
+}, 300)
 
 const { data: aiWorkspace, refresh: refreshAiWorkspace } = useFetch<AiWorkspaceState>(
   () => `/api/repos/${name.value}/ai/workspace`,
@@ -102,8 +125,8 @@ watch(selectedBranch, async (branch) => {
     return
 
   await Promise.all([
-    refreshLog(),
-    refreshAiTasks(),
+    debouncedRefreshLog(),
+    debouncedRefreshAiTasks(),
   ])
 }, { immediate: true })
 
@@ -248,7 +271,7 @@ async function handleTaskFileSelect(event: Event) {
       body: { filePath, content, ref: selectedBranch.value || undefined },
     })
     uploadSuccess.value = `Uploaded ${file.name}`
-    await refreshAiTasks()
+    await debouncedRefreshAiTasks()
   }
   catch (error: any) {
     uploadError.value = error?.data?.error || error?.statusMessage || 'Upload failed'
@@ -276,7 +299,7 @@ async function handleDeleteTask() {
       method: 'DELETE',
     })
     uploadSuccess.value = 'Task deleted'
-    await refreshAiTasks()
+    await debouncedRefreshAiTasks()
   }
   catch (error: any) {
     uploadError.value = error?.data?.error || error?.statusMessage || 'Delete failed'
@@ -303,14 +326,14 @@ async function handleClone() {
   await execute('clone', name.value)
   await refreshWorkspace()
   await refreshAiWorkspace()
-  await refreshAiTasks()
+  await debouncedRefreshAiTasks()
 }
 
 async function handlePull() {
   await execute('pull', name.value)
-  await refreshLog()
+  await debouncedRefreshLog()
   await refreshAiWorkspace()
-  await refreshAiTasks()
+  await debouncedRefreshAiTasks()
 }
 
 async function handleStartAiTask(taskPath: string) {
@@ -327,7 +350,7 @@ async function handleStartAiTask(taskPath: string) {
     })
 
     await refreshAiWorkspace()
-    await refreshAiTasks()
+    await debouncedRefreshAiTasks()
     await router.push(`/tasks/${response.run.id}`)
   }
   catch (error: any) {
@@ -726,14 +749,14 @@ async function copyUrl() {
           icon="i-carbon-renew"
           variant="secondary"
           :loading="logLoading"
-          @click="refreshLog()"
+          @click="debouncedRefreshLog()"
         />
       </div>
 
       <div v-if="logError" class="text-red-600 p-4 rounded-lg bg-red-50 dark:text-red-400 dark:bg-red-900/20">
         <span class="i-carbon-warning mr-1" />
         Failed to load commits
-        <button class="text-sm ml-2 underline" @click="refreshLog()">
+        <button class="text-sm ml-2 underline" @click="debouncedRefreshLog()">
           Retry
         </button>
       </div>
