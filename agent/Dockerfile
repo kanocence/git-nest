@@ -1,13 +1,8 @@
-FROM node:24-bookworm-slim
+FROM node:24-alpine
 
-ARG GO_VERSION=1.24.13
-ARG GO_TARBALL_URL=
 ARG TARGETARCH
 
-RUN apt-get update -qq && \
-    apt-get install -y --no-install-recommends ca-certificates git python3 make g++ ripgrep curl bzip2 && \
-    apt-get clean && \
-    rm -rf /var/lib/apt/lists/*
+RUN apk add --no-cache ca-certificates git curl bzip2
 
 # Download static Docker CLI binary (Debian repos don't have docker-ce-cli)
 RUN set -eux; \
@@ -28,18 +23,6 @@ RUN npm install -g pnpm@10.8.0 && npm cache clean --force
 # Trust Git Nest data mounts so git worktree/status can operate on those repos.
 RUN git config --system --add safe.directory "*"
 
-RUN set -eux; \
-    case "${TARGETARCH:-amd64}" in \
-      amd64) go_arch="amd64" ;; \
-      arm64) go_arch="arm64" ;; \
-      *) echo "Unsupported Go architecture: ${TARGETARCH:-unknown}" >&2; exit 1 ;; \
-    esac; \
-    go_url="${GO_TARBALL_URL:-https://go.dev/dl/go${GO_VERSION}.linux-${go_arch}.tar.gz}"; \
-    curl -fsSL "$go_url" -o /tmp/go.tar.gz && \
-    tar -C /usr/local -xzf /tmp/go.tar.gz && \
-    rm /tmp/go.tar.gz
-ENV PATH=$PATH:/usr/local/go/bin
-
 WORKDIR /app
 
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
@@ -53,6 +36,5 @@ RUN pnpm run build
 RUN pnpm prune --production && pnpm store prune
 
 ENV NODE_ENV=production
-ENV PATH=/usr/local/go/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
 CMD ["node", "dist/index.js"]
