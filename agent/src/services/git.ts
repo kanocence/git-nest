@@ -249,7 +249,7 @@ export function deleteTaskFile(config: Config, repo: string, ref: string, filePa
   }
 
   commitTaskTree(config, repo, ref, `Delete task file ${path.posix.basename(taskPath)}`, (barePath, env) => {
-    runGit(['--git-dir', barePath, 'update-index', '--cached', '--remove', taskPath], { env, timeoutMs: config.gitTimeoutMs })
+    runGit(['--git-dir', barePath, 'update-index', '--remove', taskPath], { env, timeoutMs: config.gitTimeoutMs })
   })
 }
 

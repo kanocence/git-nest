@@ -10,10 +10,25 @@ useHead({ title: 'AI Tasks' })
 const { data, status, error, refresh } = useFetch<AiRunListResponse>('/api/ai/runs', {
   key: 'ai-runs',
   default: () => ({ runs: [], total: 0 }),
+  lazy: true,
 })
 
 const runs = computed(() => data.value?.runs || [])
 const loading = computed(() => status.value === 'pending')
+
+// 刷新状态锁
+const isRefreshing = ref(false)
+const debouncedRefresh = useDebounceFn(async () => {
+  if (isRefreshing.value)
+    return
+  isRefreshing.value = true
+  try {
+    await refresh()
+  }
+  finally {
+    isRefreshing.value = false
+  }
+}, 300)
 
 function formatDate(date: string) {
   return new Date(date).toLocaleString('zh-CN', {
@@ -75,6 +90,11 @@ const repoOptions = computed(() => {
   return ['', ...Array.from(repos).sort()]
 })
 
+// Pagination
+const currentPage = ref(1)
+const pageSize = ref(10)
+const pageSizeOptions = [10, 20, 50]
+
 const filteredRuns = computed(() => {
   return runs.value.filter((run) => {
     if (statusFilter.value && run.status !== statusFilter.value)
@@ -83,6 +103,18 @@ const filteredRuns = computed(() => {
       return false
     return true
   })
+})
+
+const totalPages = computed(() => Math.max(1, Math.ceil(filteredRuns.value.length / pageSize.value)))
+
+const paginatedRuns = computed(() => {
+  const start = (currentPage.value - 1) * pageSize.value
+  return filteredRuns.value.slice(start, start + pageSize.value)
+})
+
+// Reset to first page when filters change
+watch([statusFilter, repoFilter, pageSize], () => {
+  currentPage.value = 1
 })
 </script>
 
@@ -102,8 +134,8 @@ const filteredRuns = computed(() => {
         label="Refresh"
         icon="i-carbon-renew"
         variant="secondary"
-        :loading="loading"
-        @click="refresh()"
+        :loading="loading || isRefreshing"
+        @click="debouncedRefresh()"
       />
     </div>
 
@@ -111,25 +143,17 @@ const filteredRuns = computed(() => {
     <div class="mb-4 flex flex-wrap gap-3 items-center">
       <div class="flex gap-2 items-center">
         <label class="text-sm text-gray-500">Status</label>
-        <select v-model="statusFilter" class="text-sm px-2 py-1 border border-gray-300 rounded bg-white dark:border-gray-600 dark:bg-gray-800">
-          <option value="">
-            All
-          </option>
-          <option v-for="s in statusOptions.filter(v => v)" :key="s" :value="s">
-            {{ s }}
-          </option>
-        </select>
+        <BranchSelector
+          v-model="statusFilter"
+          :options="[{ value: '', label: 'All' }, ...statusOptions.filter(v => v).map(s => ({ value: s, label: s }))]"
+        />
       </div>
       <div class="flex gap-2 items-center">
         <label class="text-sm text-gray-500">Repo</label>
-        <select v-model="repoFilter" class="text-sm px-2 py-1 border border-gray-300 rounded bg-white dark:border-gray-600 dark:bg-gray-800">
-          <option value="">
-            All repos
-          </option>
-          <option v-for="r in repoOptions.filter(v => v)" :key="r" :value="r">
-            {{ r }}
-          </option>
-        </select>
+        <BranchSelector
+          v-model="repoFilter"
+          :options="[{ value: '', label: 'All repos' }, ...repoOptions.filter(v => v).map(r => ({ value: r, label: r }))]"
+        />
       </div>
       <button
         v-if="statusFilter || repoFilter"
@@ -154,7 +178,7 @@ const filteredRuns = computed(() => {
 
     <div v-else class="space-y-3">
       <div
-        v-for="run in filteredRuns"
+        v-for="run in paginatedRuns"
         :key="run.id"
         class="p-4 border border-gray-200 rounded-lg dark:border-gray-700"
       >
@@ -186,6 +210,37 @@ const filteredRuns = computed(() => {
         </div>
         <div v-if="run.last_error" class="text-xs text-red-600 mt-2 line-clamp-2 dark:text-red-400">
           {{ run.last_error }}
+        </div>
+      </div>
+
+      <!-- Pagination -->
+      <div v-if="totalPages > 1 || filteredRuns.length > 10" class="mt-4 flex flex-wrap gap-3 items-center justify-between">
+        <div class="flex gap-2 items-center">
+          <button
+            :disabled="currentPage <= 1"
+            class="text-sm px-2 py-1 border border-gray-300 rounded dark:border-gray-600 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed dark:hover:bg-gray-700"
+            @click="currentPage--"
+          >
+            <span class="i-carbon-chevron-left" />
+          </button>
+          <span class="text-sm text-gray-600 dark:text-gray-400">
+            {{ currentPage }} / {{ totalPages }}
+          </span>
+          <button
+            :disabled="currentPage >= totalPages"
+            class="text-sm px-2 py-1 border border-gray-300 rounded dark:border-gray-600 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed dark:hover:bg-gray-700"
+            @click="currentPage++"
+          >
+            <span class="i-carbon-chevron-right" />
+          </button>
+        </div>
+        <div class="flex gap-2 items-center">
+          <span class="text-sm text-gray-500">{{ filteredRuns.length }} runs</span>
+          <select v-model="pageSize" class="text-sm px-2 py-1 border border-gray-300 rounded bg-white dark:border-gray-600 dark:bg-gray-800">
+            <option v-for="size in pageSizeOptions" :key="size" :value="size">
+              {{ size }} / page
+            </option>
+          </select>
         </div>
       </div>
     </div>

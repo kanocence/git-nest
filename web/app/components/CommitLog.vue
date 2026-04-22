@@ -35,7 +35,7 @@ function formatDate(dateStr: string): string {
       <p>No commits yet</p>
     </div>
 
-    <div v-else class="space-y-1">
+    <div v-else class="max-h-96 overflow-auto space-y-1">
       <div
         v-for="commit in commits"
         :key="commit.hash"

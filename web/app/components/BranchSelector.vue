@@ -1,6 +1,7 @@
 <script setup lang="ts">
-defineProps<{
-  branches: string[]
+const props = defineProps<{
+  branches?: string[]
+  options?: Array<{ value: string, label: string }>
   modelValue: string | undefined
 }>()
 
@@ -11,8 +12,19 @@ const emit = defineEmits<{
 const open = ref(false)
 const containerRef = ref<HTMLElement | null>(null)
 
-function select(branch: string) {
-  emit('update:modelValue', branch)
+const items = computed(() => {
+  if (props.options)
+    return props.options
+  return (props.branches || []).map(b => ({ value: b, label: b }))
+})
+
+const displayLabel = computed(() => {
+  const item = items.value.find(i => i.value === props.modelValue)
+  return item?.label || props.modelValue || 'Select'
+})
+
+function select(value: string) {
+  emit('update:modelValue', value)
   open.value = false
 }
 
@@ -33,7 +45,7 @@ onClickOutside(containerRef, () => {
       @click="toggle"
     >
       <span class="i-carbon-branch" />
-      <span>{{ modelValue || 'Select branch' }}</span>
+      <span>{{ displayLabel }}</span>
       <span
         class="text-xs transition-transform"
         :class="open ? 'i-carbon-chevron-up' : 'i-carbon-chevron-down'"
@@ -45,13 +57,13 @@ onClickOutside(containerRef, () => {
       class="mt-1 border border-gray-200 rounded-md bg-white max-h-60 min-w-full shadow-lg absolute z-10 overflow-auto dark:border-gray-700 dark:bg-gray-800"
     >
       <div
-        v-for="branch in branches"
-        :key="branch"
+        v-for="item in items"
+        :key="item.value"
         class="text-sm px-3 py-2 cursor-pointer transition-colors hover:bg-gray-100 dark:hover:bg-gray-700"
-        :class="branch === modelValue ? 'bg-teal-50 text-teal-700 dark:bg-teal-900/20 dark:text-teal-300' : 'text-gray-700 dark:text-gray-300'"
-        @click="select(branch)"
+        :class="item.value === modelValue ? 'bg-teal-50 text-teal-700 dark:bg-teal-900/20 dark:text-teal-300' : 'text-gray-700 dark:text-gray-300'"
+        @click="select(item.value)"
       >
-        {{ branch }}
+        {{ item.label }}
       </div>
     </div>
   </div>

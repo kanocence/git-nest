@@ -29,14 +29,22 @@ const selectedBranch = ref<string | undefined>(undefined)
 const { commits, loading: logLoading, error: logError, refresh: refreshLog } = useRepoLog(name, 20, selectedBranch)
 const { deleteRepo, loading: deleting } = useRunner()
 
+// 删除分支
+const branchToDelete = ref<string | null>(null)
+const showDeleteBranchConfirm = ref(false)
+const deletingBranch = ref(false)
+const branchDeleteError = ref('')
+
 // 防抖刷新 —— 避免分支切换和 push 事件并发触发重复请求
 const isRefreshingLog = ref(false)
 const debouncedRefreshLog = useDebounceFn(async () => {
-  if (isRefreshingLog.value) return
+  if (isRefreshingLog.value)
+    return
   isRefreshingLog.value = true
   try {
     await refreshLog()
-  } finally {
+  }
+  finally {
     isRefreshingLog.value = false
   }
 }, 300)
@@ -68,11 +76,13 @@ const { data: aiTasks, refresh: refreshAiTasks } = useFetch<AiTaskListResponse>(
 
 const isRefreshingAiTasks = ref(false)
 const debouncedRefreshAiTasks = useDebounceFn(async () => {
-  if (isRefreshingAiTasks.value) return
+  if (isRefreshingAiTasks.value)
+    return
   isRefreshingAiTasks.value = true
   try {
     await refreshAiTasks()
-  } finally {
+  }
+  finally {
     isRefreshingAiTasks.value = false
   }
 }, 300)
@@ -321,6 +331,33 @@ async function handleDelete() {
   }
 }
 
+async function handleDeleteBranch() {
+  if (!branchToDelete.value)
+    return
+  deletingBranch.value = true
+  branchDeleteError.value = ''
+  try {
+    await $fetch(`/api/repos/${name.value}/branches/delete`, {
+      method: 'POST',
+      body: { branch: branchToDelete.value },
+    })
+    showDeleteBranchConfirm.value = false
+    branchToDelete.value = null
+    // 刷新分支列表
+    await refreshNuxtData(`branches-${name.value}`)
+    // 如果删除的是当前选中分支，重置选择
+    if (selectedBranch.value === branchToDelete.value) {
+      selectedBranch.value = undefined
+    }
+  }
+  catch (error: any) {
+    branchDeleteError.value = error?.data?.error || error?.statusMessage || 'Failed to delete branch'
+  }
+  finally {
+    deletingBranch.value = false
+  }
+}
+
 // Clone/Pull 操作
 async function handleClone() {
   await execute('clone', name.value)
@@ -426,6 +463,15 @@ async function copyUrl() {
           v-model="selectedBranch"
           :branches="branchData.branches.map(b => b.name)"
         />
+        <button
+          v-if="selectedBranch"
+          class="text-sm text-red-600 inline-flex gap-1 items-center hover:text-red-700"
+          title="Delete branch"
+          @click="branchToDelete = selectedBranch; showDeleteBranchConfirm = true"
+        >
+          <span class="i-carbon-trash-can" />
+          Delete branch
+        </button>
       </div>
     </div>
 
@@ -640,15 +686,7 @@ async function copyUrl() {
           class="p-4 border border-gray-200 rounded-lg dark:border-gray-700"
         >
           <div class="flex flex-wrap gap-2 items-center justify-between">
-            <NuxtLink
-              v-if="getLatestTaskRun(task.path)"
-              :to="`/tasks/${getLatestTaskRun(task.path)!.id}`"
-              class="text-teal-600 font-600 hover:underline"
-              title="Open latest run"
-            >
-              {{ task.title }}
-            </NuxtLink>
-            <div v-else class="font-600">
+            <div class="text-gray-900 font-600 dark:text-gray-100">
               {{ task.title }}
             </div>
             <div class="flex gap-2 items-center">
@@ -810,6 +848,28 @@ async function copyUrl() {
           icon="i-carbon-trash-can"
           variant="danger"
           @click="handleDeleteTask"
+        />
+      </template>
+    </ModalDialog>
+
+    <!-- Delete Branch Confirmation -->
+    <ModalDialog v-model="showDeleteBranchConfirm" title="Delete Branch">
+      <p>
+        Are you sure you want to delete branch <strong>{{ branchToDelete }}</strong>?
+      </p>
+      <p class="text-sm text-red-500 mt-2">
+        This action cannot be undone.
+      </p>
+      <div v-if="branchDeleteError" class="text-sm text-red-600 mt-2">
+        {{ branchDeleteError }}
+      </div>
+      <template #actions>
+        <ActionButton
+          label="Delete"
+          icon="i-carbon-trash-can"
+          variant="danger"
+          :loading="deletingBranch"
+          @click="handleDeleteBranch"
         />
       </template>
     </ModalDialog>
