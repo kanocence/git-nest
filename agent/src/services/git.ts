@@ -249,7 +249,7 @@ export function deleteTaskFile(config: Config, repo: string, ref: string, filePa
   }
 
   commitTaskTree(config, repo, ref, `Delete task file ${path.posix.basename(taskPath)}`, (barePath, env) => {
-    runGit(['--git-dir', barePath, 'update-index', '--force-remove', taskPath], { env, timeoutMs: config.gitTimeoutMs })
+    runGit(['--git-dir', barePath, 'update-index', '--cached', '--remove', taskPath], { env, timeoutMs: config.gitTimeoutMs })
   })
 }
 
@@ -291,6 +291,9 @@ export function getWorkspaceInfo(config: Config, repo: string, lock: RepoLock | 
   }
 
   const status = runGit(['-C', dir, 'status', '--porcelain'], { timeoutMs: config.gitTimeoutMs })
+    .split(NEWLINE_RE)
+    .filter(line => !line.startsWith('??'))
+    .join('\n')
   const currentBranch = runGit(['-C', dir, 'rev-parse', '--abbrev-ref', 'HEAD'], { timeoutMs: config.gitTimeoutMs })
   const currentCommit = runGit(['-C', dir, 'rev-parse', '--short', 'HEAD'], { timeoutMs: config.gitTimeoutMs })
 

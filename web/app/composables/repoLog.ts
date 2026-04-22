@@ -21,7 +21,7 @@ export function useRepoLog(name: MaybeRef<string>, limit = 20, branch?: MaybeRef
         const branchPart = branchRef.value ? `-${branchRef.value}` : ''
         return `repo-log-${repoName.value}${branchPart}`
       }),
-      default: () => ({ repo: repoName.value, commits: [], total: 0 }),
+      lazy: true,
       watch: [repoName, branchRef],
       immediate: false,
     },
