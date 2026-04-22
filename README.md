@@ -98,27 +98,9 @@ curl -fsSL https://raw.githubusercontent.com/kanocence/git-nest/main/scripts/dep
 
 脚本会自动下载所需文件、检查 `.env` 配置、初始化目录并启动服务。首次运行若提示修改 `.env`，编辑后重新执行该脚本即可。
 
-手动部署步骤如下（与脚本等效）：
+**注意**：`.env` 中的 `PUID`/`PGID` **必须与 git 用户的 UID/GID 一致**，否则 SSH push/pull 会因权限不足而失败。`scripts/init-host.sh` 会自动检测 UID 不匹配并给出提示。如果用 root 执行脚本，务必先确认 git 用户的 UID 并填入 `.env`。
 
-```bash
-mkdir -p git-nest/scripts && cd git-nest
-
-# 准备部署文件
-curl -fsSLO https://raw.githubusercontent.com/kanocence/git-nest/main/docker-compose.yml
-curl -fsSLO https://raw.githubusercontent.com/kanocence/git-nest/main/docker-compose.release.yml
-curl -fsSLO https://raw.githubusercontent.com/kanocence/git-nest/main/.env.example
-curl -fsSL -o scripts/init-host.sh https://raw.githubusercontent.com/kanocence/git-nest/main/scripts/init-host.sh
-chmod +x scripts/init-host.sh
-cp .env.example .env
-
-# 修改 .env 后启动
-# 至少修改 PUID/PGID、GIT_RUNNER_SECRET、AGENT_SECRET、WEB_PASSWORD、SSH_HOST、SSH_GIT_PATH
-sh scripts/init-host.sh
-docker compose -f docker-compose.yml -f docker-compose.release.yml pull
-docker compose -f docker-compose.yml -f docker-compose.release.yml up -d --no-build
-```
-
-服务器只需要 `docker-compose.yml`、`docker-compose.release.yml`、`.env` 和 `scripts/init-host.sh`。
+手动部署步骤见 [docs/zh/deployment.md](docs/zh/deployment.md)。
 
 开发或自建镜像时再 clone 仓库：
 

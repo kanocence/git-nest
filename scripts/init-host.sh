@@ -65,6 +65,34 @@ if [ -f "$ENV_FILE" ]; then
   update_env HERMES_HOST_DATA_DIR "$HERMES_HOST_DATA_DIR"
 fi
 
+current_uid=$(id -u)
+
+# 非 root 用户：检查当前 UID 是否与 PUID 匹配
+if [ "$current_uid" != "0" ] && [ "$current_uid" != "$PUID" ]; then
+  printf 'Error: Current user UID is %s, but PUID=%s in .env\n' "$current_uid" "$PUID" >&2
+  printf 'Please update .env: PUID=%s PGID=%s\n' "$current_uid" "$(id -g)" >&2
+  exit 1
+fi
+
+# root 用户：如果系统存在 git 用户，检查其 UID 是否与 PUID 匹配
+if [ "$current_uid" = "0" ] && command -v id >/dev/null 2>&1; then
+  if id -u git >/dev/null 2>&1; then
+    git_uid=$(id -u git)
+    git_gid=$(id -g git)
+    if [ "$git_uid" != "$PUID" ]; then
+      printf 'Warning: git user UID is %s, but PUID=%s in .env\n' "$git_uid" "$PUID" >&2
+      printf 'SSH push/pull will fail because the git user cannot write to data directories owned by UID %s.\n' "$PUID" >&2
+      printf 'Fix: update .env to PUID=%s PGID=%s\n' "$git_uid" "$git_gid" >&2
+      printf 'Continue anyway? (y/N): ' >&2
+      read -r confirm
+      case "$confirm" in
+        [Yy]*) ;;
+        *) exit 1 ;;
+      esac
+    fi
+  fi
+fi
+
 mkdir -p "$GIT_DATA_DIR" "$GIT_WORKSPACE_DIR" "$AGENT_STATE_DIR" "$HERMES_DATA_DIR" "$BACKUP_DIR"
 mkdir -p "$AGENT_STATE_DIR/home" "$AGENT_STATE_DIR/cache" "$AGENT_STATE_DIR/runs"
 mkdir -p "$HERMES_HOST_WORKSPACE_DIR" "$HERMES_HOST_AGENT_STATE_DIR" "$HERMES_HOST_DATA_DIR"
