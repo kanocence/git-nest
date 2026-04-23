@@ -33,6 +33,10 @@ export default defineNuxtConfig({
     },
   },
 
+  css: [
+    '~/assets/styles/variables.css',
+  ],
+
   colorMode: {
     classSuffix: '',
   },

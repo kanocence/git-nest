@@ -18,7 +18,6 @@ async function handleLogin() {
       method: 'POST',
       body: { password: password.value },
     })
-    // 登录成功，跳转首页
     await navigateTo('/')
   }
   catch (e: any) {
@@ -31,54 +30,181 @@ async function handleLogin() {
 </script>
 
 <template>
-  <div class="px-4 bg-gray-50 flex min-h-screen items-center justify-center dark:bg-gray-900">
-    <div class="max-w-sm w-full">
+  <div class="login-page">
+    <div class="login-container">
       <!-- Logo -->
-      <div class="mb-8 text-center">
-        <h1 class="text-3xl font-700">
+      <div class="login-header">
+        <h1 class="login-title">
           🪺 Git Nest
         </h1>
-        <p class="text-sm text-gray-500 mt-2">
+        <p class="login-subtitle">
           Enter password to continue
         </p>
       </div>
 
       <!-- Login Form -->
-      <form
-        class="p-6 border border-gray-200 rounded-xl bg-white shadow-sm dark:border-gray-700 dark:bg-gray-800"
-        @submit.prevent="handleLogin"
-      >
-        <div class="mb-4">
-          <label for="password" class="text-sm text-gray-700 font-500 mb-1.5 block dark:text-gray-300">
-            Password
-          </label>
+      <form class="login-form" @submit.prevent="handleLogin">
+        <div class="form-field">
+          <label for="password" class="form-label">Password</label>
           <input
             id="password"
             v-model="password"
             type="password"
             autocomplete="current-password"
             placeholder="Enter your password"
-            class="text-gray-900 px-3 py-2 border border-gray-300 rounded-lg bg-white w-full dark:text-gray-100 focus:outline-none dark:border-gray-600 focus:border-transparent dark:bg-gray-900 focus:ring-2 focus:ring-teal-500 placeholder-gray-400"
+            class="form-input"
             :disabled="loading"
             autofocus
           >
         </div>
 
         <!-- Error -->
-        <div v-if="error" class="text-sm text-red-600 mb-4 p-3 rounded-lg bg-red-50 dark:text-red-400 dark:bg-red-900/20">
-          <span class="i-carbon-warning mr-1" />
+        <div v-if="error" class="alert alert--error">
+          <span class="i-carbon-warning" />
           {{ error }}
         </div>
 
         <button
           type="submit"
           :disabled="loading || !password"
-          class="text-white font-500 px-4 py-2 rounded-lg bg-teal-600 flex gap-2 w-full transition-colors items-center justify-center hover:bg-teal-700 disabled:opacity-50 disabled:cursor-not-allowed"
+          class="submit-btn"
         >
-          <span v-if="loading" class="i-carbon-circle-dash animate-spin" />
+          <span v-if="loading" class="i-carbon-circle-dash icon-spin" />
           <span>{{ loading ? 'Signing in...' : 'Sign in' }}</span>
         </button>
       </form>
     </div>
   </div>
 </template>
+
+<style scoped>
+.login-page {
+  display: flex;
+  min-height: 100vh;
+  align-items: center;
+  justify-content: center;
+  padding: 0 var(--space-4);
+  background-color: var(--bg-elevated);
+}
+
+.login-container {
+  width: 100%;
+  max-width: 24rem;
+}
+
+.login-header {
+  text-align: center;
+  margin-bottom: var(--space-8);
+}
+
+.login-title {
+  font-size: 1.875rem;
+  font-weight: var(--font-weight-bold);
+  color: var(--text-primary);
+}
+
+.login-subtitle {
+  font-size: var(--font-size-sm);
+  color: var(--text-secondary);
+  margin-top: var(--space-2);
+}
+
+.login-form {
+  padding: var(--space-6);
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius-xl);
+  background-color: var(--bg-surface);
+  box-shadow: var(--shadow-sm);
+}
+
+.form-field {
+  margin-bottom: var(--space-4);
+}
+
+.form-label {
+  display: block;
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  color: var(--text-primary);
+  margin-bottom: var(--space-1);
+}
+
+.form-input {
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--font-size-sm);
+  color: var(--text-primary);
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius-lg);
+  outline: none;
+  transition:
+    border-color var(--transition-fast),
+    box-shadow var(--transition-fast);
+}
+
+.form-input:focus {
+  border-color: var(--color-primary);
+  box-shadow: var(--focus-ring);
+}
+
+.form-input::placeholder {
+  color: var(--text-muted);
+}
+
+.form-input:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.alert {
+  padding: var(--space-3);
+  border-radius: var(--border-radius-lg);
+  font-size: var(--font-size-sm);
+  margin-bottom: var(--space-4);
+}
+
+.alert--error {
+  color: var(--color-danger);
+  background-color: var(--color-danger-light);
+}
+
+.submit-btn {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-4);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  color: var(--text-inverse);
+  background-color: var(--color-primary);
+  border: none;
+  border-radius: var(--border-radius-lg);
+  cursor: pointer;
+  transition: background-color var(--transition-fast);
+}
+
+.submit-btn:hover:not(:disabled) {
+  background-color: var(--color-primary-hover);
+}
+
+.submit-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.icon-spin {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+</style>
