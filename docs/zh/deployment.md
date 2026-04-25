@@ -1,6 +1,6 @@
 # Git Nest 部署与运维手册
 
-> 面向服务器部署和日常运维，覆盖 Web、`git-runner`、`agent`、`code-server` 四个服务。
+> 面向服务器部署和日常运维，覆盖 Web（含 AI Agent 运行时）、`git-runner`、`code-server` 三个服务。
 
 ## 1. 推荐部署方式：GHCR 预构建镜像
 
@@ -51,7 +51,7 @@ cp .env.example .env
 部署前重点修改这些值：
 
 - `PUID` / `PGID`：改为宿主机上负责读写数据目录的用户，例如 `id git` 查到的 UID/GID。
-- `GIT_RUNNER_SECRET` / `AGENT_SECRET`：改为随机字符串，例如 `openssl rand -hex 32`。
+- `GIT_RUNNER_SECRET`：改为随机字符串，例如 `openssl rand -hex 32`。
 - `WEB_PASSWORD`：生产环境建议设置。
 - `GIT_DATA_DIR` / `GIT_WORKSPACE_DIR` / `AGENT_STATE_DIR` / `BACKUP_DIR`：数据目录，默认使用当前目录下的 `./data/...`。
 - `SSH_HOST` / `SSH_PORT` / `SSH_GIT_PATH`：决定 Web 页面展示的 SSH clone 地址。
@@ -109,7 +109,6 @@ docker compose ps
 
 - `git-nest-web`
 - `git-nest-runner`
-- `git-nest-agent`
 - `git-nest-editor`
 
 后续升级同样执行：
@@ -133,7 +132,6 @@ cp .env.example .env
 
 - `ghcr.io/<owner>/git-nest-web`
 - `ghcr.io/<owner>/git-nest-runner`
-- `ghcr.io/<owner>/git-nest-agent`
 - `ghcr.io/<owner>/git-nest-code-server`
 
 触发条件：
@@ -142,14 +140,13 @@ cp .env.example .env
 - push `v*` tag
 - 手动 `workflow_dispatch`
 
-构建缓存使用 Docker BuildKit 的 GitHub Actions cache，每个镜像独立 scope，避免 Nuxt、Agent、Runner 缓存互相污染。默认只构建 `linux/amd64`。`agent` 镜像下载的是 amd64 Go tarball，启用 arm64/multi-arch 前需要先改造 `agent/Dockerfile` 的 Go 下载逻辑。
+构建缓存使用 Docker BuildKit 的 GitHub Actions cache，每个镜像独立 scope，避免 Nuxt、Runner 缓存互相污染。默认只构建 `linux/amd64`。
 
 如果不使用 GitHub Actions，也可以在服务器或开发机本地构建镜像。此时可以把 `.env` 中的 `GIT_NEST_*_IMAGE` 改成本地 tag，或删除这些变量使用 `docker-compose.yml` 中的默认 fallback。
 
 ```env
 GIT_NEST_WEB_IMAGE=git-nest-web:local
 GIT_NEST_RUNNER_IMAGE=git-nest-runner:local
-GIT_NEST_AGENT_IMAGE=git-nest-agent:local
 GIT_NEST_CODE_SERVER_IMAGE=git-nest-code-server:local
 ```
 
@@ -176,16 +173,7 @@ docker compose ps git-runner
 docker compose logs -f git-runner
 ```
 
-### 3.3 agent
-
-```bash
-docker compose ps agent
-docker compose logs -f agent
-```
-
-`agent` 容器内有 `/health` 检查，Compose 会直接用它判断服务是否就绪。
-
-### 3.4 code-server
+### 3.3 code-server
 
 ```bash
 docker compose ps code-server
@@ -205,10 +193,10 @@ agent-state/
 
 ## 5. 共享 Workspace 运维约束
 
-AI 不是独立沙箱，而是共享 `GIT_WORKSPACE_DIR`：
+AI 运行时与 Web 服务共用同一个容器，共享 `GIT_WORKSPACE_DIR`：
 
 - `code-server` 打开的是 `/workspace`
-- `agent` 也直接使用同一目录
+- AI Agent 也直接使用同一目录
 - 每个 AI 任务通过切换到 `ai/<runId>` 分支工作
 
 因此需要接受下面这些约束：
@@ -217,11 +205,11 @@ AI 不是独立沙箱，而是共享 `GIT_WORKSPACE_DIR`：
 - 启动任务前，`/workspace/<repo>` 必须是干净工作区
 - AI run 运行期间，不要人工修改同一仓库目录
 - 任务完成或取消后，目录可能仍停留在任务分支，人工审查前先确认当前分支
-- `agent`、`git-runner`、`code-server` 都应使用同一组 `PUID` / `PGID` 访问共享目录
+- `nuxt-app`（含 AI Agent）、`git-runner`、`code-server` 都应使用同一组 `PUID` / `PGID` 访问共享目录
 
 ## 6. 升级与重启行为
 
-`agent` 在启动时会扫描历史锁和 runs：
+Web 服务（含 AI Agent 运行时）在启动时会扫描历史锁和 runs：
 
 - `queued` / `waiting_approval` 视为可恢复状态，run manager 会自动恢复队列或等待审批
 - 已终态 run（`completed` / `failed` / `cancelled`）会清理残留锁
@@ -253,7 +241,6 @@ AI 不是独立沙箱，而是共享 `GIT_WORKSPACE_DIR`：
 docker compose ps
 docker compose logs -f
 docker compose logs -f git-runner
-docker compose logs -f agent
 docker compose logs -f nuxt-app
 docker compose logs -f code-server
 ```

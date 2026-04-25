@@ -1,6 +1,4 @@
 <script setup lang="ts">
-import type { AiRunListResponse, AiTaskListResponse, AiWorkspaceState } from '~/types'
-
 const route = useRoute('repos-name')
 const name = computed(() => route.params.name as string)
 
@@ -57,14 +55,30 @@ const { data: workspace, refresh: refreshWorkspace } = useFetch<{ exists: boolea
   { key: `workspace-${name.value}` },
 )
 
-const { data: aiTasks, refresh: refreshAiTasks } = useFetch<AiTaskListResponse>(
-  () => `/api/repos/${name.value}/ai/tasks?ref=${encodeURIComponent(selectedBranch.value || '')}`,
-  {
-    key: () => `ai-tasks-${name.value}-${selectedBranch.value || ''}`,
-    default: () => ({ repo: name.value, ref: selectedBranch.value || '', tasks: [], total: 0 }),
-    immediate: false,
-  },
-)
+// AI tasks composable
+const {
+  aiTasks,
+  aiWorkspace,
+  repoRuns,
+  canStartAiTask,
+  refreshAiTasks,
+  refreshAiWorkspace,
+  refreshAiRuns,
+  aiActionError,
+  aiStartingTaskPath,
+  pendingStartTaskPath,
+  showRestartConfirm,
+  promptStartAiTask,
+  doStartAiTask,
+  uploading,
+  uploadSuccess,
+  uploadError,
+  handleTaskUpload,
+  taskToDelete,
+  showDeleteTaskConfirm,
+  confirmDeleteTask,
+  handleDeleteTask,
+} = useAiRepoTasks(name, selectedBranch)
 
 const isRefreshingAiTasks = ref(false)
 const debouncedRefreshAiTasks = useDebounceFn(async () => {
@@ -78,34 +92,6 @@ const debouncedRefreshAiTasks = useDebounceFn(async () => {
     isRefreshingAiTasks.value = false
   }
 }, 300)
-
-const { data: aiWorkspace, refresh: refreshAiWorkspace } = useFetch<AiWorkspaceState>(
-  () => `/api/repos/${name.value}/ai/workspace`,
-  {
-    key: `ai-workspace-${name.value}`,
-    default: () => ({
-      repo: name.value,
-      path: '',
-      exists: false,
-      isGitRepo: false,
-      clean: null,
-      currentBranch: null,
-      currentCommit: null,
-      occupiedByAi: false,
-      activeRunId: null,
-      activeTaskBranch: null,
-      lockStatus: null,
-      lockUpdatedAt: null,
-    }),
-  },
-)
-
-const { data: aiRuns, refresh: refreshAiRuns } = useFetch<AiRunListResponse>(
-  '/api/ai/runs',
-  { key: 'ai-runs-repo', default: () => ({ runs: [], total: 0 }) },
-)
-
-const repoRuns = computed(() => aiRuns.value?.runs.filter(r => r.repo === name.value) || [])
 
 watch(branchData, (data) => {
   const branches = data?.branches || []
@@ -162,7 +148,7 @@ async function handleClone() {
 
 async function handlePull() {
   await execute('pull', name.value)
-  await debouncedRefreshLog()
+  await refreshLog()
   await refreshAiWorkspace()
   await debouncedRefreshAiTasks()
 }
@@ -194,119 +180,6 @@ const editorUrl = computed(() => {
   const base = codeServerUrl.replace(/\/$/, '')
   return `${base}/?folder=/workspace/${name.value}`
 })
-
-// AI Task actions
-const aiActionError = ref('')
-const aiStartingTaskPath = ref<string | null>(null)
-const canStartAiTask = computed(() => aiWorkspace.value?.occupiedByAi !== true && aiWorkspace.value?.clean !== false)
-
-const pendingStartTaskPath = ref<string | null>(null)
-const showRestartConfirm = ref(false)
-
-function promptStartAiTask(taskPath: string) {
-  const hasHistory = repoRuns.value.filter(r => r.task_path === taskPath).some(r => r.status !== 'cancelled')
-  if (hasHistory) {
-    pendingStartTaskPath.value = taskPath
-    showRestartConfirm.value = true
-  }
-  else {
-    doStartAiTask(taskPath)
-  }
-}
-
-function doStartAiTask(taskPath: string) {
-  showRestartConfirm.value = false
-  handleStartAiTask(taskPath)
-}
-
-async function handleStartAiTask(taskPath: string) {
-  aiActionError.value = ''
-  aiStartingTaskPath.value = taskPath
-  try {
-    const response = await $fetch<{ run: { id: string } }>(`/api/repos/${name.value}/ai/tasks/start`, {
-      method: 'POST',
-      body: { taskPath, ref: selectedBranch.value || undefined },
-    })
-    await refreshAiWorkspace()
-    await debouncedRefreshAiTasks()
-    await router.push(`/tasks/${response.run.id}`)
-  }
-  catch (error: any) {
-    aiActionError.value = error?.data?.error || error?.statusMessage || 'Failed to start AI task.'
-    await refreshAiWorkspace()
-  }
-  finally {
-    aiStartingTaskPath.value = null
-  }
-}
-
-// Task upload/delete
-const uploading = ref(false)
-const uploadSuccess = ref('')
-const uploadError = ref('')
-const taskToDelete = ref<string | null>(null)
-const showDeleteTaskConfirm = ref(false)
-
-async function handleTaskUpload(file: File) {
-  uploading.value = true
-  uploadError.value = ''
-  uploadSuccess.value = ''
-  try {
-    const content = await file.text()
-    const filePath = `.git-nest/tasks/${file.name}`
-    await $fetch(`/api/repos/${name.value}/ai/tasks/upload`, {
-      method: 'POST',
-      body: { filePath, content, ref: selectedBranch.value || undefined },
-    })
-    uploadSuccess.value = `Uploaded ${file.name}`
-    await debouncedRefreshAiTasks()
-  }
-  catch (error: any) {
-    uploadError.value = error?.data?.error || error?.statusMessage || 'Upload failed'
-  }
-  finally {
-    uploading.value = false
-  }
-}
-
-function confirmDeleteTask(taskPath: string) {
-  taskToDelete.value = taskPath
-  showDeleteTaskConfirm.value = true
-}
-
-async function handleDeleteTask() {
-  if (!taskToDelete.value)
-    return
-  try {
-    const query = new URLSearchParams({ filePath: taskToDelete.value })
-    if (selectedBranch.value)
-      query.set('ref', selectedBranch.value)
-    await $fetch(`/api/repos/${name.value}/ai/tasks/delete?${query.toString()}`, { method: 'DELETE' })
-    uploadSuccess.value = 'Task deleted'
-    await debouncedRefreshAiTasks()
-  }
-  catch (error: any) {
-    uploadError.value = error?.data?.error || error?.statusMessage || 'Delete failed'
-  }
-  finally {
-    showDeleteTaskConfirm.value = false
-    taskToDelete.value = null
-  }
-}
-
-// Delete repo
-const showDeleteConfirm = ref(false)
-
-async function handleDelete() {
-  try {
-    await deleteRepo(name.value)
-    showDeleteConfirm.value = false
-    await router.push('/')
-  }
-  catch {
-    // handled by useRunner
-  }
-}
 
 // SSE live logs
 const liveEvents = ref<Array<{ type: string, message: string, createdAt: string }>>([])
@@ -360,6 +233,20 @@ watch(sseData, (newData) => {
     // ignore parse errors
   }
 })
+
+// Delete repo
+const showDeleteConfirm = ref(false)
+
+async function handleDelete() {
+  try {
+    await deleteRepo(name.value)
+    showDeleteConfirm.value = false
+    await router.push('/')
+  }
+  catch {
+    // handled by useRunner
+  }
+}
 </script>
 
 <template>

@@ -1,7 +1,7 @@
 #!/usr/bin/env sh
 set -eu
 
-REPO_RAW="https://raw.githubusercontent.com/kanocence/git-nest/dev"
+REPO_RAW="https://raw.githubusercontent.com/kanocence/git-nest/main"
 
 # 颜色输出
 red='\033[0;31m'
@@ -48,7 +48,6 @@ validate_env() {
   fi
 
   git_runner_secret=""
-  agent_secret=""
   web_password=""
   ssh_host=""
   ssh_git_path=""
@@ -56,9 +55,6 @@ validate_env() {
   # 读取 .env 中的值
   if grep -qE '^GIT_RUNNER_SECRET=' .env; then
     git_runner_secret=$(grep -E '^GIT_RUNNER_SECRET=' .env | tail -n 1 | cut -d'=' -f2- | sed 's/[[:space:]]*#.*$//' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
-  fi
-  if grep -qE '^AGENT_SECRET=' .env; then
-    agent_secret=$(grep -E '^AGENT_SECRET=' .env | tail -n 1 | cut -d'=' -f2- | sed 's/[[:space:]]*#.*$//' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
   fi
   if grep -qE '^WEB_PASSWORD=' .env; then
     web_password=$(grep -E '^WEB_PASSWORD=' .env | tail -n 1 | cut -d'=' -f2- | sed 's/[[:space:]]*#.*$//' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
@@ -74,11 +70,6 @@ validate_env() {
 
   if [ "$git_runner_secret" = "change-me-to-a-random-string" ] || [ -z "$git_runner_secret" ]; then
     log_warn "GIT_RUNNER_SECRET 未修改，建议设置为随机字符串（如: openssl rand -hex 32）"
-    has_error=1
-  fi
-
-  if [ "$agent_secret" = "change-me-to-another-random-string" ] || [ -z "$agent_secret" ]; then
-    log_warn "AGENT_SECRET 未修改，建议设置为随机字符串"
     has_error=1
   fi
 
@@ -139,7 +130,7 @@ if [ ! -f ".env" ]; then
   log_info "复制 .env.example 为 .env"
   cp .env.example .env
   log_warn "已生成 .env，请修改必要配置后再继续"
-  log_warn "至少要修改: PUID/PGID、GIT_RUNNER_SECRET、AGENT_SECRET、WEB_PASSWORD、SSH_HOST、SSH_GIT_PATH"
+  log_warn "至少要修改: PUID/PGID、GIT_RUNNER_SECRET、WEB_PASSWORD、SSH_HOST、SSH_GIT_PATH"
   exit 0
 fi
 

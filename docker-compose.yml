@@ -5,21 +5,72 @@ services:
     build: ./web
     container_name: git-nest-web
     restart: unless-stopped
+    user: "${PUID:-1000}:${PGID:-1000}"
+    group_add:
+      - "${DOCKER_GID:-999}"
     ports:
       - "${WEB_PORT:-3000}:3000"
     environment:
       - NUXT_GIT_RUNNER_HOST=git-runner
       - NUXT_GIT_RUNNER_PORT=3001
       - NUXT_GIT_RUNNER_SECRET=${GIT_RUNNER_SECRET}
-      - NUXT_AGENT_HOST=agent
-      - NUXT_AGENT_PORT=3002
-      - NUXT_AGENT_SECRET=${AGENT_SECRET}
       - NUXT_PUBLIC_CODE_SERVER_URL=${CODE_SERVER_URL:-}
       - NUXT_PUBLIC_SERVER_HOST=${NUXT_PUBLIC_SERVER_HOST:-}
       - NUXT_PUBLIC_SSH_HOST=${SSH_HOST:-}
       - NUXT_PUBLIC_SSH_PORT=${SSH_PORT:-22}
       - NUXT_PUBLIC_SSH_GIT_PATH=${SSH_GIT_PATH:-/data/git}
       - NUXT_WEB_PASSWORD=${WEB_PASSWORD:-}
+      # Agent runtime configuration
+      # NUXT_AGENT_* prefix required — Nuxt runtimeConfig only auto-maps NUXT_ prefixed env vars in production.
+      # These override the build-time defaults baked into the image.
+      - NUXT_AGENT_DATA_DIR=/data/git
+      - NUXT_AGENT_WORKSPACE_DIR=/data/workspace
+      - NUXT_AGENT_STATE_DIR=/data/agent-state
+      - NUXT_AGENT_EXECUTOR_MAX_TURNS=${AGENT_EXECUTOR_MAX_TURNS:-30}
+      - NUXT_AGENT_EXECUTOR_TIMEOUT_MS=${AGENT_EXECUTOR_TIMEOUT_MS:-1800000}
+      - NUXT_AGENT_EXECUTOR_MAX_CONTINUATIONS=${AGENT_EXECUTOR_MAX_CONTINUATIONS:-2}
+      - NUXT_AGENT_HERMES_IMAGE=${HERMES_IMAGE:-nousresearch/hermes-agent:latest}
+      - NUXT_AGENT_HERMES_TOOLSETS=${HERMES_TOOLSETS:-file,terminal}
+      - NUXT_AGENT_HERMES_PROVIDER=${HERMES_PROVIDER:-}
+      - NUXT_AGENT_HERMES_MODEL=${HERMES_MODEL:-}
+      - NUXT_AGENT_HERMES_HOST_WORKSPACE_DIR=${HERMES_HOST_WORKSPACE_DIR}
+      - NUXT_AGENT_HERMES_HOST_STATE_DIR=${HERMES_HOST_AGENT_STATE_DIR}
+      - NUXT_AGENT_HERMES_HOST_DATA_DIR=${HERMES_HOST_DATA_DIR}
+      - NUXT_AGENT_COMMAND_TIMEOUT_MS=${COMMAND_TIMEOUT_MS:-120000}
+      - NUXT_AGENT_AGENT_GIT_USER_NAME=${AGENT_GIT_USER_NAME:-Git Nest AI}
+      - NUXT_AGENT_AGENT_GIT_USER_EMAIL=${AGENT_GIT_USER_EMAIL:-ai@git-nest.local}
+      - NUXT_AGENT_WEBHOOK_URL=${WEBHOOK_URL:-}
+      - NUXT_AGENT_WEBHOOK_SECRET=${WEBHOOK_SECRET:-}
+      - NUXT_AGENT_WEBHOOK_TIMEOUT_MS=${WEBHOOK_TIMEOUT_MS:-30000}
+      - NUXT_AGENT_WEBHOOK_MAX_RETRIES=${WEBHOOK_MAX_RETRIES:-3}
+      - NUXT_AGENT_RUNTIME_UID=${PUID:-1000}
+      - NUXT_AGENT_RUNTIME_GID=${PGID:-1000}
+      - NUXT_AGENT_DOCKER_GID=${DOCKER_GID:-}
+      # Keep plain PUID/PGID for non-Nuxt processes in the container
+      - PUID=${PUID:-1000}
+      - PGID=${PGID:-1000}
+      # API keys passed directly to Hermes containers via process.env (no NUXT_ prefix needed)
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - KIMI_API_KEY=${KIMI_API_KEY:-}
+      - KIMI_CN_API_KEY=${KIMI_CN_API_KEY:-}
+      - MINIMAX_API_KEY=${MINIMAX_API_KEY:-}
+      - MINIMAX_CN_API_KEY=${MINIMAX_CN_API_KEY:-}
+      - DASHSCOPE_API_KEY=${DASHSCOPE_API_KEY:-}
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY:-}
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY:-}
+      - ARCEEAI_API_KEY=${ARCEEAI_API_KEY:-}
+      - XIAOMI_API_KEY=${XIAOMI_API_KEY:-}
+      - HF_TOKEN=${HF_TOKEN:-}
+      - XAI_API_KEY=${XAI_API_KEY:-}
+      - GLM_API_KEY=${GLM_API_KEY:-}
+    volumes:
+      - ${GIT_DATA_DIR:-./data/git}:/data/git
+      - ${GIT_WORKSPACE_DIR:-./data/workspace}:/data/workspace
+      - ${AGENT_STATE_DIR:-./data/agent-state}:/data/agent-state
+      - ${HERMES_DATA_DIR:-./data/hermes}:/data/hermes
+      - /var/run/docker.sock:/var/run/docker.sock
     depends_on:
       git-runner:
         condition: service_healthy
@@ -52,81 +103,6 @@ services:
       - ${BACKUP_DIR:-./data/backups}:/data/backups
     healthcheck:
       test: ["CMD", "wget", "-q", "--spider", "http://localhost:3001/health"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 5s
-    logging:
-      driver: json-file
-      options:
-        max-size: "10m"
-        max-file: "3"
-    networks:
-      - internal
-
-  # agent orchestrator
-  agent:
-    image: ${GIT_NEST_AGENT_IMAGE:-git-nest-agent:local}
-    build: ./agent
-    container_name: git-nest-agent
-    restart: unless-stopped
-    user: "${PUID:-1000}:${PGID:-1000}"
-    group_add:
-      - "${DOCKER_GID:-999}"
-    environment:
-      - PUID=${PUID:-1000}
-      - PGID=${PGID:-1000}
-      - API_SECRET=${AGENT_SECRET}
-      - GIT_DATA_DIR=/data/git
-      - GIT_WORKSPACE_DIR=/data/workspace
-      - AGENT_STATE_DIR=/data/agent-state
-      - HOME=/data/agent-state/home
-      - XDG_CACHE_HOME=/data/agent-state/cache
-      # Executor configuration
-      - AGENT_EXECUTOR_MAX_TURNS=${AGENT_EXECUTOR_MAX_TURNS:-30}
-      - AGENT_EXECUTOR_TIMEOUT_MS=${AGENT_EXECUTOR_TIMEOUT_MS:-1800000}
-      - AGENT_EXECUTOR_MAX_CONTINUATIONS=${AGENT_EXECUTOR_MAX_CONTINUATIONS:-2}
-      # Hermes CLI configuration
-      - HERMES_IMAGE=${HERMES_IMAGE:-nousresearch/hermes-agent:latest}
-      - HERMES_TOOLSETS=${HERMES_TOOLSETS:-file,terminal}
-      - HERMES_PROVIDER=${HERMES_PROVIDER:-}
-      - HERMES_MODEL=${HERMES_MODEL:-}
-      - HERMES_HOST_WORKSPACE_DIR=${HERMES_HOST_WORKSPACE_DIR}
-      - HERMES_HOST_AGENT_STATE_DIR=${HERMES_HOST_AGENT_STATE_DIR}
-      - HERMES_HOST_DATA_DIR=${HERMES_HOST_DATA_DIR}
-      # AI Provider API Keys (Hermes)
-      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
-      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
-      - KIMI_API_KEY=${KIMI_API_KEY:-}
-      - KIMI_CN_API_KEY=${KIMI_CN_API_KEY:-}
-      - MINIMAX_API_KEY=${MINIMAX_API_KEY:-}
-      - MINIMAX_CN_API_KEY=${MINIMAX_CN_API_KEY:-}
-      - DASHSCOPE_API_KEY=${DASHSCOPE_API_KEY:-}
-      - GOOGLE_API_KEY=${GOOGLE_API_KEY:-}
-      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
-      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY:-}
-      - ARCEEAI_API_KEY=${ARCEEAI_API_KEY:-}
-      - XIAOMI_API_KEY=${XIAOMI_API_KEY:-}
-      - HF_TOKEN=${HF_TOKEN:-}
-      - XAI_API_KEY=${XAI_API_KEY:-}
-      - GLM_API_KEY=${GLM_API_KEY:-}
-      # Other configuration
-      - COMMAND_TIMEOUT_MS=${COMMAND_TIMEOUT_MS:-120000}
-      - AGENT_GIT_USER_NAME=${AGENT_GIT_USER_NAME:-Git Nest AI}
-      - AGENT_GIT_USER_EMAIL=${AGENT_GIT_USER_EMAIL:-ai@git-nest.local}
-      - WEBHOOK_URL=${WEBHOOK_URL:-}
-      - WEBHOOK_SECRET=${WEBHOOK_SECRET:-}
-      - WEBHOOK_TIMEOUT_MS=${WEBHOOK_TIMEOUT_MS:-30000}
-      - WEBHOOK_MAX_RETRIES=${WEBHOOK_MAX_RETRIES:-3}
-      - PORT=3002
-    volumes:
-      - ${GIT_DATA_DIR:-./data/git}:/data/git
-      - ${GIT_WORKSPACE_DIR:-./data/workspace}:/data/workspace
-      - ${AGENT_STATE_DIR:-./data/agent-state}:/data/agent-state
-      - ${HERMES_DATA_DIR:-./data/hermes}:/data/hermes
-      - /var/run/docker.sock:/var/run/docker.sock
-    healthcheck:
-      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3002/health').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
       interval: 30s
       timeout: 5s
       retries: 3

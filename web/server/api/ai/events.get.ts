@@ -1,26 +1,5 @@
 export default defineEventHandler(async (event) => {
-  const baseUrl = getAgentBaseUrl()
-  const headers = getAgentHeaders()
-
-  let response: Response
-  try {
-    response = await fetch(`${baseUrl}/api/events`, {
-      headers,
-    })
-  }
-  catch {
-    throw createError({
-      statusCode: 502,
-      statusMessage: 'agent is not reachable',
-    })
-  }
-
-  if (!response.ok || !response.body) {
-    throw createError({
-      statusCode: response.status || 502,
-      statusMessage: 'Failed to connect to agent event stream',
-    })
-  }
+  const agent = useAgentRuntime(event)
 
   setResponseHeaders(event, {
     'Content-Type': 'text/event-stream',
@@ -29,5 +8,25 @@ export default defineEventHandler(async (event) => {
     'X-Accel-Buffering': 'no',
   })
 
-  return sendStream(event, response.body)
+  const stream = new ReadableStream({
+    start(controller) {
+      const encoder = new TextEncoder()
+      controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'connected' })}\n\n`))
+
+      const unsubscribe = agent.events.subscribe((eventPayload) => {
+        try {
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify(eventPayload)}\n\n`))
+        }
+        catch {
+          unsubscribe()
+        }
+      })
+
+      event.node.req.on('close', () => {
+        unsubscribe()
+      })
+    },
+  })
+
+  return sendStream(event, stream)
 })
