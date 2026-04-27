@@ -84,6 +84,7 @@ export function useExecutorBudget(events: MaybeRef<AiRunEvent[]>) {
 
 /**
  * AI 事件 SSE 订阅和 UI 转换
+ * @param options 可选配置
  * @param options.filter 可选的过滤函数，决定哪些事件被保留
  */
 export function useAiEvents(options?: {

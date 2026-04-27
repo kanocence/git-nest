@@ -2,6 +2,7 @@ import { execSync } from 'node:child_process'
 import { mkdirSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import process from 'node:process'
 
 export interface AgentRuntimeConfig {
   dataDir: string
@@ -31,40 +32,45 @@ export interface AgentRuntimeConfig {
   dockerGid: string
 }
 
-function envInt(raw: string | undefined, defaultValue: number): number {
-  if (!raw)
+export function envInt(raw: unknown, defaultValue: number): number {
+  if (raw === undefined || raw === null || raw === '')
     return defaultValue
 
-  const parsed = Number.parseInt(raw, 10)
+  const parsed = Number.parseInt(String(raw).trim(), 10)
   return Number.isFinite(parsed) && parsed > 0 ? parsed : defaultValue
 }
 
-function envStr(raw: string | undefined, defaultValue: string = ''): string {
-  return raw?.trim() || defaultValue
+export function envStr(raw: unknown, defaultValue: string = ''): string {
+  if (raw === undefined || raw === null)
+    return defaultValue
+
+  return String(raw).trim() || defaultValue
 }
 
-function envUrl(raw: string | undefined): string {
-  if (!raw)
+function envUrl(raw: unknown): string {
+  const value = envStr(raw)
+  if (!value)
     return ''
 
   try {
-    const url = new URL(raw)
+    const url = new URL(value)
     if (url.protocol !== 'http:' && url.protocol !== 'https:')
       throw new Error('invalid protocol')
 
     return url.toString()
   }
   catch {
-    throw new Error(`URL must be a valid http(s) URL. Got: ${raw}`)
+    throw new Error(`URL must be a valid http(s) URL. Got: ${value}`)
   }
 }
 
-function requireAbsoluteDir(name: string, raw: string | undefined): string {
-  if (!raw)
+function requireAbsoluteDir(name: string, raw: unknown): string {
+  const value = envStr(raw)
+  if (!value)
     throw new Error(`${name} is required and must be an absolute path.`)
-  if (!path.isAbsolute(raw))
-    throw new Error(`${name} must be an absolute path. Got: ${raw}`)
-  return raw
+  if (!path.isAbsolute(value))
+    throw new Error(`${name} must be an absolute path. Got: ${value}`)
+  return value
 }
 
 export function checkDockerAvailable(): void {
@@ -81,12 +87,12 @@ export function checkDockerAvailable(): void {
 }
 
 export function loadAgentConfig(): AgentRuntimeConfig {
-  const runtimeConfig = useRuntimeConfig().agent as Record<string, string | number | undefined>
+  const runtimeConfig = useRuntimeConfig().agent as Record<string, unknown>
 
   // Nuxt runtimeConfig only auto-maps NUXT_* prefixed env vars in production.
   // Fall back to process.env directly so that plain env names (e.g. GIT_DATA_DIR)
   // still work when passed by docker-compose.
-  const config: Record<string, string | number | undefined> = { ...runtimeConfig }
+  const config: Record<string, unknown> = { ...runtimeConfig }
   const envFallbacks: Record<string, string> = {
     dataDir: 'GIT_DATA_DIR',
     workspaceDir: 'GIT_WORKSPACE_DIR',
@@ -119,9 +125,9 @@ export function loadAgentConfig(): AgentRuntimeConfig {
     }
   }
 
-  const dataDir = envStr(config.dataDir as string | undefined, path.join(process.cwd(), 'data', 'git'))
-  const workspaceDir = envStr(config.workspaceDir as string | undefined, path.join(process.cwd(), 'data', 'workspace'))
-  const stateDir = envStr(config.stateDir as string | undefined, path.join(os.tmpdir(), 'git-nest-agent-state'))
+  const dataDir = envStr(config.dataDir, path.join(process.cwd(), 'data', 'git'))
+  const workspaceDir = envStr(config.workspaceDir, path.join(process.cwd(), 'data', 'workspace'))
+  const stateDir = envStr(config.stateDir, path.join(os.tmpdir(), 'git-nest-agent-state'))
 
   mkdirSync(stateDir, { recursive: true })
 
@@ -132,26 +138,26 @@ export function loadAgentConfig(): AgentRuntimeConfig {
     workspaceDir,
     stateDir,
     dbPath: path.join(stateDir, 'state.sqlite'),
-    gitTimeoutMs: envInt(config.gitTimeoutMs as string | undefined, 30000),
-    commandTimeoutMs: envInt(config.commandTimeoutMs as string | undefined, 120000),
-    agentGitUserName: envStr(config.agentGitUserName as string | undefined, 'Git Nest AI'),
-    agentGitUserEmail: envStr(config.agentGitUserEmail as string | undefined, 'ai@git-nest.local'),
-    webhookUrl: envUrl(config.webhookUrl as string | undefined),
-    webhookSecret: envStr(config.webhookSecret as string | undefined, ''),
-    webhookTimeoutMs: envInt(config.webhookTimeoutMs as string | undefined, 30000),
-    webhookMaxRetries: envInt(config.webhookMaxRetries as string | undefined, 3),
-    executorMaxTurns: envInt(config.executorMaxTurns as string | undefined, 30),
-    executorTimeoutMs: envInt(config.executorTimeoutMs as string | undefined, 30 * 60 * 1000),
-    executorMaxContinuations: envInt(config.executorMaxContinuations as string | undefined, 2),
-    hermesImage: envStr(config.hermesImage as string | undefined, 'nousresearch/hermes-agent:latest'),
-    hermesToolsets: envStr(config.hermesToolsets as string | undefined, 'file,terminal'),
-    hermesProvider: envStr(config.hermesProvider as string | undefined, ''),
-    hermesModel: envStr(config.hermesModel as string | undefined, ''),
-    hermesHostWorkspaceDir: requireAbsoluteDir('HERMES_HOST_WORKSPACE_DIR', config.hermesHostWorkspaceDir as string | undefined),
-    hermesHostStateDir: requireAbsoluteDir('HERMES_HOST_AGENT_STATE_DIR', config.hermesHostStateDir as string | undefined),
-    hermesHostDataDir: requireAbsoluteDir('HERMES_HOST_DATA_DIR', config.hermesHostDataDir as string | undefined),
-    runtimeUid: envStr(config.runtimeUid as string | undefined, '1000'),
-    runtimeGid: envStr(config.runtimeGid as string | undefined, '1000'),
-    dockerGid: envStr(config.dockerGid as string | undefined, ''),
+    gitTimeoutMs: envInt(config.gitTimeoutMs, 30000),
+    commandTimeoutMs: envInt(config.commandTimeoutMs, 120000),
+    agentGitUserName: envStr(config.agentGitUserName, 'Git Nest AI'),
+    agentGitUserEmail: envStr(config.agentGitUserEmail, 'ai@git-nest.local'),
+    webhookUrl: envUrl(config.webhookUrl),
+    webhookSecret: envStr(config.webhookSecret, ''),
+    webhookTimeoutMs: envInt(config.webhookTimeoutMs, 30000),
+    webhookMaxRetries: envInt(config.webhookMaxRetries, 3),
+    executorMaxTurns: envInt(config.executorMaxTurns, 30),
+    executorTimeoutMs: envInt(config.executorTimeoutMs, 30 * 60 * 1000),
+    executorMaxContinuations: envInt(config.executorMaxContinuations, 2),
+    hermesImage: envStr(config.hermesImage, 'nousresearch/hermes-agent:latest'),
+    hermesToolsets: envStr(config.hermesToolsets, 'file,terminal'),
+    hermesProvider: envStr(config.hermesProvider, ''),
+    hermesModel: envStr(config.hermesModel, ''),
+    hermesHostWorkspaceDir: requireAbsoluteDir('HERMES_HOST_WORKSPACE_DIR', config.hermesHostWorkspaceDir),
+    hermesHostStateDir: requireAbsoluteDir('HERMES_HOST_AGENT_STATE_DIR', config.hermesHostStateDir),
+    hermesHostDataDir: requireAbsoluteDir('HERMES_HOST_DATA_DIR', config.hermesHostDataDir),
+    runtimeUid: envStr(config.runtimeUid, '1000'),
+    runtimeGid: envStr(config.runtimeGid, '1000'),
+    dockerGid: envStr(config.dockerGid, ''),
   }
 }

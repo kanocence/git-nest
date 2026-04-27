@@ -1,5 +1,5 @@
 import type { RunRecord, RunStatus } from '#shared/types/agent'
-import { RUN_STATUS, APPROVAL_RUN_STATUSES, CONTINUATION_RUN_STATUSES, TERMINAL_RUN_STATUSES } from '#shared/types/agent-status'
+import { APPROVAL_RUN_STATUSES, CONTINUATION_RUN_STATUSES, RUN_STATUS, TERMINAL_RUN_STATUSES } from '#shared/types/agent-status'
 import { AgentError } from './errors'
 
 export function assertRunCanApprove(run: RunRecord): void {

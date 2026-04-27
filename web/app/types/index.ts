@@ -1,5 +1,16 @@
 // Types for git-runner API responses
 
+// AI types — imported from shared types with backward-compatible Ai* aliases
+import type {
+  RunListResponse,
+  RunRecord,
+  TaskAcceptanceConfig,
+  TaskExecutorConfig,
+  TaskListResponse,
+  TaskSummary,
+  WorkspaceStateResponse,
+} from '#shared/types/agent'
+
 export interface RepoInfo {
   name: string
   path: string
@@ -35,17 +46,6 @@ export interface ApiErrorResponse {
   error: string
   code: string
 }
-
-// AI types — imported from shared types with backward-compatible Ai* aliases
-import type {
-  TaskAcceptanceConfig,
-  TaskExecutorConfig,
-  TaskSummary,
-  TaskListResponse,
-  RunRecord,
-  RunListResponse,
-  WorkspaceStateResponse,
-} from '#shared/types/agent'
 
 export type AiTaskAcceptanceConfig = TaskAcceptanceConfig
 export type AiTaskExecutorConfig = TaskExecutorConfig

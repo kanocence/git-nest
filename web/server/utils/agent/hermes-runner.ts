@@ -1,7 +1,9 @@
+import type { Buffer } from 'node:buffer'
 import type { AgentRuntimeConfig } from './config'
 import { spawn } from 'node:child_process'
 import { appendFileSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
+import process from 'node:process'
 
 export interface HermesRunParams {
   runId: string
@@ -122,7 +124,7 @@ export function createHermesRunner(config: AgentRuntimeConfig): HermesRunner {
 
       args.push('--query', 'Read /tmp/git-nest-prompt.md and complete the task in the current working directory.')
 
-      console.log('[hermes] starting container', { runId: params.runId, args })
+      console.warn('[hermes] starting container', { runId: params.runId, args })
 
       const child = spawn('docker', args, {
         stdio: ['ignore', 'pipe', 'pipe'],
@@ -170,7 +172,7 @@ export function createHermesRunner(config: AgentRuntimeConfig): HermesRunner {
             const trimmedStderr = stderr.trim()
             const lowerStderr = trimmedStderr.toLowerCase()
             if (lowerStderr.includes('no such container') || lowerStderr.includes('no such object')) {
-              console.log('[hermes] container already exited before kill', { runId: params.runId, containerName, signal })
+              console.warn('[hermes] container already exited before kill', { runId: params.runId, containerName, signal })
               resolve('missing')
               return
             }
@@ -212,7 +214,7 @@ export function createHermesRunner(config: AgentRuntimeConfig): HermesRunner {
         if (cancelled)
           return
 
-        console.log('[hermes] abort signal received, killing container', { runId: params.runId })
+        console.warn('[hermes] abort signal received, killing container', { runId: params.runId })
         cancelled = true
         terminate('SIGTERM')
         setupForceKill()

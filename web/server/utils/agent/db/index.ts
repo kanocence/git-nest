@@ -1,16 +1,4 @@
-import { createRequire } from 'node:module'
 import type { DatabaseSync } from 'node:sqlite'
-import { initSchema } from './schema'
-import { createStatements } from './statements'
-import {
-  createApprovalStateRepository,
-  createCheckpointRepository,
-  createCodeReviewRepository,
-  createEventRepository,
-  createLockRepository,
-  createRunRepository,
-  createRunWorkspaceRepository,
-} from './repository'
 import type {
   ApprovalStateRepository,
   CheckpointRepository,
@@ -20,6 +8,18 @@ import type {
   RunRepository,
   RunWorkspaceRepository,
 } from './repository'
+import { createRequire } from 'node:module'
+import {
+  createApprovalStateRepository,
+  createCheckpointRepository,
+  createCodeReviewRepository,
+  createEventRepository,
+  createLockRepository,
+  createRunRepository,
+  createRunWorkspaceRepository,
+} from './repository'
+import { initSchema } from './schema'
+import { createStatements } from './statements'
 
 const require = createRequire(import.meta.url)
 const { DatabaseSync: DatabaseSyncClass } = require('node:sqlite') as { DatabaseSync: new (path: string) => DatabaseSync }

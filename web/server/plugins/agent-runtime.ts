@@ -1,9 +1,9 @@
+import type { AgentRuntime } from '../utils/agent/runtime'
+import { loadAgentConfig } from '../utils/agent/config'
 import { createAgentDb } from '../utils/agent/db'
 import { createAgentEventHub } from '../utils/agent/events'
 import { createAgentLocks } from '../utils/agent/locks'
-import { loadAgentConfig } from '../utils/agent/config'
 import { createRunManager } from '../utils/agent/run-manager'
-import type { AgentRuntime } from '../utils/agent/runtime'
 
 export default defineNitroPlugin((nitroApp) => {
   // Check for existing runtime (Dev HMR reuse)
@@ -12,11 +12,11 @@ export default defineNitroPlugin((nitroApp) => {
     try {
       // Verify db connection is still usable
       existing.db.db.prepare('SELECT 1').get()
-      console.log('[agent] Reusing existing AgentRuntime (Dev HMR)')
+      console.warn('[agent] Reusing existing AgentRuntime (Dev HMR)')
       return
     }
     catch {
-      console.log('[agent] Existing AgentRuntime db connection stale, recreating...')
+      console.warn('[agent] Existing AgentRuntime db connection stale, recreating...')
     }
   }
 
@@ -36,7 +36,7 @@ export default defineNitroPlugin((nitroApp) => {
 
   ;(globalThis as any).__gitNestAgentRuntime = runtime
 
-  console.log('[agent] AgentRuntime initialized')
+  console.warn('[agent] AgentRuntime initialized')
 
   // Recover interrupted locks from previous sessions (crash/restart)
   runManager.recoverInterruptedRuns()
@@ -46,7 +46,7 @@ export default defineNitroPlugin((nitroApp) => {
 
   // Graceful shutdown: abort active runs on Nitro close
   nitroApp.hooks.hook('close', () => {
-    console.log('[agent] Nitro shutting down, aborting active runs...')
+    console.warn('[agent] Nitro shutting down, aborting active runs...')
     runManager.abortActiveRuns('Nitro server shutting down')
   })
 })

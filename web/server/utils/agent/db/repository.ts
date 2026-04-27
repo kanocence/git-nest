@@ -197,7 +197,7 @@ export function createEventRepository(_db: DatabaseSync, s: DbStatements): Event
       node_id: event.nodeId || null,
       role: event.role || null,
       message: event.message,
-      payload: event.payload || null,
+      payload: event.payload ?? null,
       created_at: createdAt,
     }
   }
