@@ -1,4 +1,4 @@
-import type { AiRunListResponse, AiTaskListResponse, AiWorkspaceState, AiRunRecord } from '~/types'
+import type { AiRunListResponse, AiTaskListResponse, AiWorkspaceState } from '~/types'
 
 /**
  * AI 任务列表与操作

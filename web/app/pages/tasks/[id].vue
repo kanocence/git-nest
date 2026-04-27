@@ -26,7 +26,7 @@ const {
   codeServerEditorUrl,
 } = useAiRunDetail(id)
 
-const { liveEvents, isConnected, toUiEvent } = useAiEvents({
+const { liveEvents, isConnected } = useAiEvents({
   filter: (event) => {
     return event.runId === id.value || event.run_id === id.value || event.type === 'connected'
   },

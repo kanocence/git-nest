@@ -1,10 +1,12 @@
-import type { AgentRuntimeConfig } from './config'
+import type { Buffer } from 'node:buffer'
 import type { RepoLock, WorkspaceInfo, WorkspaceSnapshot } from '#shared/types/agent'
+import type { AgentRuntimeConfig } from './config'
 import { execFileSync } from 'node:child_process'
 import crypto from 'node:crypto'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import process from 'node:process'
 import { AgentError } from './errors'
 
 const REPO_NAME_RE = /^[a-z0-9][a-z0-9_.-]{0,63}$/
@@ -37,7 +39,7 @@ function runGit(args: string[], options: RunGitOptions = {}): string {
         args: [
           '-NoProfile',
           '-Command',
-          `$ErrorActionPreference='Stop'; & git @(${args.map(arg => `'${String(arg).replace(/'/g, "'''")}'`).join(', ')})`,
+          `$ErrorActionPreference='Stop'; & git @(${args.map(arg => `'${String(arg).replace(/'/g, '\'\'\'')}'`).join(', ')})`,
         ],
       }
     : {
@@ -466,6 +468,10 @@ export function cleanupRunWorkspace(config: AgentRuntimeConfig, repo: string, ru
     }
     catch {
       // If worktree remove fails, force remove the directory
+      const relativeToWorkspaceRoot = path.relative(path.resolve(config.workspaceDir), path.resolve(workspaceDir))
+      if (relativeToWorkspaceRoot && !relativeToWorkspaceRoot.startsWith('..') && !path.isAbsolute(relativeToWorkspaceRoot))
+        rmSync(workspaceDir, { recursive: true, force: true })
+
       try {
         runGit(['-C', barePath, 'worktree', 'prune'], { timeoutMs: config.gitTimeoutMs })
       }

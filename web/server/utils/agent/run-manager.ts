@@ -1,13 +1,14 @@
-import type { AgentDb } from './db'
-import type { AgentRuntimeConfig } from './config'
 import type { RunRecord, RunStatus, TaskDefinitionV2 } from '#shared/types/agent'
+import type { AgentRuntimeConfig } from './config'
+import type { AgentDb } from './db'
 import type { AgentEventHub } from './events'
 import type { HermesRunner, HermesRunParams, HermesRunResult } from './hermes-runner'
-import { AgentError } from './errors'
 import { RUN_STATUS } from '#shared/types/agent-status'
 import { validateAcceptanceCommand } from './acceptance'
+import { AgentError } from './errors'
 import { cleanupRunWorkspace, commitAndPushRunWorkspace, getRunWorkspacePath, hasRunWorkspaceChanges, readTaskFile, runRunWorkspaceCommand } from './git'
 import { createHermesRunner } from './hermes-runner'
+import { assertRunCanRetry } from './status'
 import { parseTaskDefinitionV2 } from './tasks'
 
 export interface RunManager {
@@ -662,9 +663,7 @@ Continue from the current workspace state. Inspect existing changes first, do no
       throw new AgentError(404, 'RUN_NOT_FOUND', 'Run not found')
     }
 
-    if (run.status !== RUN_STATUS.systemInterrupted) {
-      throw new AgentError(409, 'RUN_NOT_RETRYABLE', 'Only system_interrupted runs can be retried')
-    }
+    assertRunCanRetry(run)
 
     // Check if repo is locked by another run
     const existingLock = db.locks.get(run.repo)
@@ -699,21 +698,21 @@ Continue from the current workspace state. Inspect existing changes first, do no
     }
 
     context.abortController.abort()
-    console.log('[run-manager] run cancellation requested', { runId })
+    console.warn('[run-manager] run cancellation requested', { runId })
     return true
   }
 
   function abortActiveRuns(reason: string = 'Server shutting down'): void {
-    console.log('[run-manager] aborting active runs', { count: activeRuns.size, reason })
+    console.warn('[run-manager] aborting active runs', { count: activeRuns.size, reason })
     for (const [runId, context] of activeRuns) {
       context.abortController.abort()
-      console.log('[run-manager] abort signal sent to active run', { runId })
+      console.warn('[run-manager] abort signal sent to active run', { runId })
     }
   }
 
   function resumeQueuedRuns(): void {
     const queuedRuns = db.runs.listByStatus(RUN_STATUS.queued)
-    console.log('[run-manager] resuming queued runs', { count: queuedRuns.length })
+    console.warn('[run-manager] resuming queued runs', { count: queuedRuns.length })
 
     for (const run of queuedRuns) {
       startRun(run.id).catch((error) => {

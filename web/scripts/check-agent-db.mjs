@@ -1,12 +1,12 @@
-import { DatabaseSync } from 'node:sqlite'
+import { mkdtempSync, unlinkSync } from 'node:fs'
 import { createRequire } from 'node:module'
+
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import process from 'node:process'
 
 const require = createRequire(import.meta.url)
 const { DatabaseSync: DatabaseSyncClass } = require('node:sqlite')
-
-import { mkdtempSync, unlinkSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
 
 const tmpDir = mkdtempSync(join(tmpdir(), 'agent-db-smoke-'))
 const DB_PATH = process.env.AGENT_DB_PATH || join(tmpDir, 'test.db')
@@ -61,7 +61,8 @@ function assert(name, condition) {
   if (condition) {
     console.log(`  PASS: ${name}`)
     passed++
-  } else {
+  }
+  else {
     console.log(`  FAIL: ${name}`)
     failed++
   }
@@ -79,8 +80,8 @@ const db = new DatabaseSyncClass(DB_PATH)
 // 1. Schema init
 section('1. Schema Initialization')
 db.exec(SCHEMA_SQL)
-assert('WAL mode enabled', db.prepare("PRAGMA journal_mode").get().journal_mode === 'wal')
-assert('Foreign keys enabled', db.prepare("PRAGMA foreign_keys").get().foreign_keys === 1)
+assert('WAL mode enabled', db.prepare('PRAGMA journal_mode').get().journal_mode === 'wal')
+assert('Foreign keys enabled', db.prepare('PRAGMA foreign_keys').get().foreign_keys === 1)
 
 // 2. Run CRUD
 section('2. Run CRUD')
@@ -181,4 +182,5 @@ console.log('\nAll checks passed!')
 // Cleanup
 try {
   unlinkSync(DB_PATH)
-} catch { /* ignore */ }
+}
+catch { /* ignore */ }

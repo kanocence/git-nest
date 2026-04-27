@@ -1,8 +1,8 @@
 import type { H3Event } from 'h3'
+import type { AgentRuntimeConfig } from './config'
 import type { AgentDb } from './db'
 import type { AgentEventHub } from './events'
 import type { AgentLocks } from './locks'
-import type { AgentRuntimeConfig } from './config'
 import type { RunManager } from './run-manager'
 
 export interface AgentRuntime {
