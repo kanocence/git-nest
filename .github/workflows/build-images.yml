@@ -33,9 +33,6 @@ jobs:
           - name: runner
             image: git-nest-runner
             context: ./runner
-          - name: agent
-            image: git-nest-agent
-            context: ./agent
           - name: code-server
             image: git-nest-code-server
             context: ./code-server

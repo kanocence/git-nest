@@ -8,8 +8,7 @@ Git Nest 的 AI 能力已实现可运行的核心闭环。
 
 已完成：
 
-- `agent` 独立服务与 Compose 集成
-- 与 Nuxt 的代理层对接
+- AI Agent 运行时嵌入 Nuxt/Nitro server
 - 仓库级互斥锁
 - 共享 workspace 状态探测
 - 任务 YAML 发现与解析
@@ -33,15 +32,13 @@ AI 相关链路如下：
 ```text
 Browser
   -> Nuxt /api/*
-  -> agent
   -> shared /workspace/<repo>
   -> bare repo in /data/git
 ```
 
 职责划分：
 
-- `nuxt-app`：代理 AI API，承载任务列表、详情和审批/重试/释放等交互页面
-- `agent`：管理任务定义、状态、锁、共享目录准备
+- `nuxt-app`：Web UI + Server API + AI Agent 运行时。直接管理任务定义、状态、锁、共享目录准备，承载任务列表、详情和审批/重试/释放等交互页面
 - `git-runner`：继续负责传统 Git/workspace/backup 能力，不承担 agent 执行
 - `code-server`：直接打开共享工作区，方便人工审查
 

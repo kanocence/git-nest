@@ -10,10 +10,25 @@ useHead({ title: 'AI Tasks' })
 const { data, status, error, refresh } = useFetch<AiRunListResponse>('/api/ai/runs', {
   key: 'ai-runs',
   default: () => ({ runs: [], total: 0 }),
+  lazy: true,
 })
 
 const runs = computed(() => data.value?.runs || [])
 const loading = computed(() => status.value === 'pending')
+
+// 刷新状态锁
+const isRefreshing = ref(false)
+const debouncedRefresh = useDebounceFn(async () => {
+  if (isRefreshing.value)
+    return
+  isRefreshing.value = true
+  try {
+    await refresh()
+  }
+  finally {
+    isRefreshing.value = false
+  }
+}, 300)
 
 function formatDate(date: string) {
   return new Date(date).toLocaleString('zh-CN', {
@@ -44,20 +59,20 @@ function formatDuration(createdAt: string, updatedAt: string) {
 function getStatusClass(status: string) {
   switch (status) {
     case 'completed':
-      return 'text-green-700 bg-green-100 dark:text-green-300 dark:bg-green-900/30'
+      return 'status--success'
     case 'failed':
     case 'system_interrupted':
-      return 'text-red-700 bg-red-100 dark:text-red-300 dark:bg-red-900/30'
+      return 'status--danger'
     case 'running':
     case 'queued':
     case 'preparing':
-      return 'text-blue-700 bg-blue-100 dark:text-blue-300 dark:bg-blue-900/30'
+      return 'status--info'
     case 'waiting_approval':
     case 'waiting_continuation':
-      return 'text-amber-700 bg-amber-100 dark:text-amber-300 dark:bg-amber-900/30'
+      return 'status--warning'
     case 'cancelled':
     default:
-      return 'text-gray-700 bg-gray-100 dark:text-gray-300 dark:bg-gray-800'
+      return 'status--default'
   }
 }
 
@@ -75,6 +90,11 @@ const repoOptions = computed(() => {
   return ['', ...Array.from(repos).sort()]
 })
 
+// Pagination
+const currentPage = ref(1)
+const pageSize = ref(10)
+const pageSizeOptions = [10, 20, 50]
+
 const filteredRuns = computed(() => {
   return runs.value.filter((run) => {
     if (statusFilter.value && run.status !== statusFilter.value)
@@ -84,17 +104,29 @@ const filteredRuns = computed(() => {
     return true
   })
 })
+
+const totalPages = computed(() => Math.max(1, Math.ceil(filteredRuns.value.length / pageSize.value)))
+
+const paginatedRuns = computed(() => {
+  const start = (currentPage.value - 1) * pageSize.value
+  return filteredRuns.value.slice(start, start + pageSize.value)
+})
+
+// Reset to first page when filters change
+watch([statusFilter, repoFilter, pageSize], () => {
+  currentPage.value = 1
+})
 </script>
 
 <template>
-  <div class="mx-auto max-w-4xl">
-    <div class="mb-6 flex items-center justify-between">
+  <div class="tasks-page">
+    <div class="page-header">
       <div>
-        <h1 class="text-2xl font-700 flex gap-2 items-center">
-          <span class="i-carbon-machine-learning-model text-teal-600" />
+        <h1 class="page-title">
+          <span class="i-carbon-machine-learning-model page-icon" />
           AI Tasks
         </h1>
-        <p class="text-sm text-gray-500 mt-1">
+        <p class="page-subtitle">
           Shared workspace runs and preparation status
         </p>
       </div>
@@ -102,92 +134,368 @@ const filteredRuns = computed(() => {
         label="Refresh"
         icon="i-carbon-renew"
         variant="secondary"
-        :loading="loading"
-        @click="refresh()"
+        :loading="loading || isRefreshing"
+        @click="debouncedRefresh()"
       />
     </div>
 
     <!-- Filters -->
-    <div class="mb-4 flex flex-wrap gap-3 items-center">
-      <div class="flex gap-2 items-center">
-        <label class="text-sm text-gray-500">Status</label>
-        <select v-model="statusFilter" class="text-sm px-2 py-1 border border-gray-300 rounded bg-white dark:border-gray-600 dark:bg-gray-800">
-          <option value="">
-            All
-          </option>
-          <option v-for="s in statusOptions.filter(v => v)" :key="s" :value="s">
-            {{ s }}
-          </option>
-        </select>
+    <div class="filters">
+      <div class="filter-group">
+        <label class="filter-label">Status</label>
+        <BranchSelector
+          v-model="statusFilter"
+          :options="[{ value: '', label: 'All' }, ...statusOptions.filter(v => v).map(s => ({ value: s, label: s }))]"
+        />
       </div>
-      <div class="flex gap-2 items-center">
-        <label class="text-sm text-gray-500">Repo</label>
-        <select v-model="repoFilter" class="text-sm px-2 py-1 border border-gray-300 rounded bg-white dark:border-gray-600 dark:bg-gray-800">
-          <option value="">
-            All repos
-          </option>
-          <option v-for="r in repoOptions.filter(v => v)" :key="r" :value="r">
-            {{ r }}
-          </option>
-        </select>
+      <div class="filter-group">
+        <label class="filter-label">Repo</label>
+        <BranchSelector
+          v-model="repoFilter"
+          :options="[{ value: '', label: 'All repos' }, ...repoOptions.filter(v => v).map(r => ({ value: r, label: r }))]"
+        />
       </div>
       <button
         v-if="statusFilter || repoFilter"
-        class="text-sm text-teal-600 hover:underline"
+        class="clear-filters"
         @click="statusFilter = ''; repoFilter = ''"
       >
         Clear filters
       </button>
     </div>
 
-    <div v-if="error" class="text-red-600 mb-4 p-4 rounded-lg bg-red-50 dark:text-red-400 dark:bg-red-900/20">
+    <div v-if="error" class="alert alert--error">
       Failed to load AI runs.
     </div>
 
-    <div v-else-if="loading" class="text-gray-400 py-16 text-center">
-      <span class="text-lg animate-pulse">Loading AI runs...</span>
+    <div v-else-if="loading" class="loading-state">
+      <span>Loading AI runs...</span>
     </div>
 
-    <div v-else-if="filteredRuns.length === 0" class="text-gray-500 py-16 text-center">
+    <div v-else-if="filteredRuns.length === 0" class="empty-state">
       {{ runs.length === 0 ? 'No AI runs yet.' : 'No runs match the selected filters.' }}
     </div>
 
-    <div v-else class="space-y-3">
+    <div v-else class="run-list">
       <div
-        v-for="run in filteredRuns"
+        v-for="run in paginatedRuns"
         :key="run.id"
-        class="p-4 border border-gray-200 rounded-lg dark:border-gray-700"
+        class="run-card"
       >
-        <div class="flex flex-wrap gap-2 items-center justify-between">
-          <NuxtLink :to="`/tasks/${run.id}`" class="text-teal-600 font-600 break-all hover:underline">
+        <div class="run-card-header">
+          <NuxtLink :to="`/tasks/${run.id}`" class="run-link">
             {{ run.task_title || run.task_path }}
           </NuxtLink>
           <span
-            class="text-xs px-2 py-0.5 rounded-full"
+            class="status-badge"
             :class="getStatusClass(run.status)"
           >
             {{ run.status }}
           </span>
         </div>
-        <div class="text-sm text-gray-500 mt-2">
+        <div class="run-meta">
           Repo:
-          <NuxtLink :to="`/repos/${run.repo}`" class="text-teal-600 hover:underline">
+          <NuxtLink :to="`/repos/${run.repo}`" class="repo-link">
             {{ run.repo }}
           </NuxtLink>
         </div>
-        <div class="text-sm text-gray-500 mt-1 break-all">
+        <div class="run-meta">
           Branch: <code>{{ run.task_branch }}</code>
         </div>
-        <div class="text-sm text-gray-500 mt-1">
+        <div class="run-meta">
           Duration: {{ formatDuration(run.created_at, run.updated_at) }}
         </div>
-        <div class="text-xs text-gray-400 mt-2">
+        <div class="run-time">
           Created {{ formatDate(run.created_at) }} · Updated {{ formatDate(run.updated_at) }}
         </div>
-        <div v-if="run.last_error" class="text-xs text-red-600 mt-2 line-clamp-2 dark:text-red-400">
+        <div v-if="run.last_error" class="run-error">
           {{ run.last_error }}
+        </div>
+      </div>
+
+      <!-- Pagination -->
+      <div v-if="totalPages > 1 || filteredRuns.length > 10" class="pagination">
+        <div class="pagination-nav">
+          <button
+            :disabled="currentPage <= 1"
+            class="pagination-btn"
+            @click="currentPage--"
+          >
+            <span class="i-carbon-chevron-left" />
+          </button>
+          <span class="pagination-info">
+            {{ currentPage }} / {{ totalPages }}
+          </span>
+          <button
+            :disabled="currentPage >= totalPages"
+            class="pagination-btn"
+            @click="currentPage++"
+          >
+            <span class="i-carbon-chevron-right" />
+          </button>
+        </div>
+        <div class="pagination-size">
+          <span class="run-count">{{ filteredRuns.length }} runs</span>
+          <select v-model="pageSize" class="size-select">
+            <option v-for="size in pageSizeOptions" :key="size" :value="size">
+              {{ size }} / page
+            </option>
+          </select>
         </div>
       </div>
     </div>
   </div>
 </template>
+
+<style scoped>
+.tasks-page {
+  max-width: 56rem;
+  margin: 0 auto;
+}
+
+.page-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--space-6);
+}
+
+.page-title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--font-size-xl);
+  font-weight: var(--font-weight-bold);
+  color: var(--text-primary);
+}
+
+.page-icon {
+  color: var(--color-primary);
+}
+
+.page-subtitle {
+  font-size: var(--font-size-sm);
+  color: var(--text-secondary);
+  margin-top: var(--space-1);
+}
+
+.filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  align-items: center;
+  margin-bottom: var(--space-4);
+}
+
+.filter-group {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+}
+
+.filter-label {
+  font-size: var(--font-size-sm);
+  color: var(--text-secondary);
+}
+
+.clear-filters {
+  font-size: var(--font-size-sm);
+  color: var(--color-primary);
+  background: none;
+  border: none;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.alert {
+  padding: var(--space-4);
+  border-radius: var(--border-radius-lg);
+  font-size: var(--font-size-sm);
+  margin-bottom: var(--space-4);
+}
+
+.alert--error {
+  color: var(--color-danger);
+  background-color: var(--color-danger-light);
+}
+
+.loading-state {
+  text-align: center;
+  padding: var(--space-16) 0;
+  color: var(--text-muted);
+  font-size: var(--font-size-lg);
+  animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+.empty-state {
+  text-align: center;
+  padding: var(--space-16) 0;
+  color: var(--text-secondary);
+}
+
+.run-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.run-card {
+  padding: var(--space-4);
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius-lg);
+  background-color: var(--bg-surface);
+}
+
+.run-card-header {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+  justify-content: space-between;
+}
+
+.run-link {
+  color: var(--color-primary);
+  font-weight: var(--font-weight-semibold);
+  word-break: break-all;
+  text-decoration: none;
+  transition: text-decoration var(--transition-fast);
+}
+
+.run-link:hover {
+  text-decoration: underline;
+}
+
+.status-badge {
+  font-size: var(--font-size-xs);
+  padding: var(--space-1) var(--space-2);
+  border-radius: 9999px;
+  white-space: nowrap;
+}
+
+.status--success {
+  color: var(--color-success);
+  background-color: var(--color-success-light);
+}
+
+.status--danger {
+  color: var(--color-danger);
+  background-color: var(--color-danger-light);
+}
+
+.status--info {
+  color: var(--color-info);
+  background-color: var(--color-info-light);
+}
+
+.status--warning {
+  color: var(--color-warning);
+  background-color: var(--color-warning-light);
+}
+
+.status--default {
+  color: var(--text-secondary);
+  background-color: var(--bg-elevated);
+}
+
+.run-meta {
+  font-size: var(--font-size-sm);
+  color: var(--text-secondary);
+  margin-top: var(--space-2);
+  word-break: break-all;
+}
+
+.repo-link {
+  color: var(--color-primary);
+  text-decoration: none;
+}
+
+.repo-link:hover {
+  text-decoration: underline;
+}
+
+.run-time {
+  font-size: var(--font-size-xs);
+  color: var(--text-muted);
+  margin-top: var(--space-2);
+}
+
+.run-error {
+  font-size: var(--font-size-xs);
+  color: var(--color-danger);
+  margin-top: var(--space-2);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.pagination {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  align-items: center;
+  justify-content: space-between;
+  margin-top: var(--space-4);
+}
+
+.pagination-nav {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+}
+
+.pagination-btn {
+  padding: var(--space-1) var(--space-2);
+  font-size: var(--font-size-sm);
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius-sm);
+  background-color: var(--bg-surface);
+  cursor: pointer;
+  transition: background-color var(--transition-fast);
+}
+
+.pagination-btn:hover:not(:disabled) {
+  background-color: var(--bg-elevated);
+}
+
+.pagination-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.pagination-info {
+  font-size: var(--font-size-sm);
+  color: var(--text-secondary);
+}
+
+.pagination-size {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+}
+
+.run-count {
+  font-size: var(--font-size-sm);
+  color: var(--text-secondary);
+}
+
+.size-select {
+  padding: var(--space-1) var(--space-2);
+  font-size: var(--font-size-sm);
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius-sm);
+  background-color: var(--bg-surface);
+  color: var(--text-primary);
+}
+
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+</style>

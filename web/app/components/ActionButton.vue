@@ -14,30 +14,89 @@ defineEmits<{
   click: []
 }>()
 
-const variantClasses = computed(() => {
-  if (props.disabled || props.loading) {
-    return 'bg-gray-400 dark:bg-gray-600 cursor-not-allowed opacity-50 text-white'
-  }
-  switch (props.variant) {
-    case 'danger':
-      return 'bg-red-600 hover:bg-red-700 text-white cursor-pointer'
-    case 'secondary':
-      return 'bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-200 cursor-pointer'
-    default:
-      return 'bg-teal-600 hover:bg-teal-700 text-white cursor-pointer'
-  }
+const variantClass = computed(() => {
+  if (props.disabled || props.loading)
+    return 'btn--disabled'
+  return `btn--${props.variant}`
 })
 </script>
 
 <template>
   <button
-    class="text-sm font-500 px-3 py-1.5 rounded-md inline-flex gap-1.5 transition-colors items-center"
-    :class="variantClasses"
+    class="btn"
+    :class="variantClass"
     :disabled="disabled || loading"
     @click="$emit('click')"
   >
-    <span v-if="loading" class="i-carbon-renew text-sm animate-spin" />
-    <span v-else-if="icon" :class="icon" class="text-sm" />
+    <span v-if="loading" class="i-carbon-renew icon-spin" />
+    <span v-else-if="icon" :class="icon" class="btn-icon" />
     <span>{{ label }}</span>
   </button>
 </template>
+
+<style scoped>
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  border-radius: var(--border-radius-md);
+  border: none;
+  cursor: pointer;
+  transition: background-color var(--transition-fast);
+}
+
+.btn--primary {
+  background-color: var(--color-primary);
+  color: var(--text-inverse);
+}
+
+.btn--primary:hover {
+  background-color: var(--color-primary-hover);
+}
+
+.btn--danger {
+  background-color: var(--color-danger);
+  color: var(--text-inverse);
+}
+
+.btn--danger:hover {
+  background-color: var(--color-danger-hover);
+}
+
+.btn--secondary {
+  background-color: var(--bg-elevated);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
+}
+
+.btn--secondary:hover {
+  background-color: var(--border-color);
+}
+
+.btn--disabled {
+  background-color: var(--text-muted);
+  color: var(--text-inverse);
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.btn-icon {
+  font-size: var(--font-size-sm);
+}
+
+.icon-spin {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+</style>

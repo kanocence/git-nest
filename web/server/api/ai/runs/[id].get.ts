@@ -1,4 +1,4 @@
-export default defineEventHandler(async (event) => {
+export default defineAgentHandler(async (event) => {
   const id = getRouterParam(event, 'id')
   if (!id) {
     throw createError({
@@ -6,5 +6,20 @@ export default defineEventHandler(async (event) => {
       statusMessage: 'Run id is required',
     })
   }
-  return await proxyToAgent(`/api/runs/${encodeURIComponent(id)}`)
+
+  const agent = useAgentRuntime(event)
+  const run = agent.db.runs.get(id)
+  if (!run) {
+    throw createError({
+      statusCode: 404,
+      statusMessage: 'Run not found',
+      data: { code: 'RUN_NOT_FOUND' },
+    })
+  }
+
+  return {
+    run,
+    events: agent.db.events.listByRun(id, 200),
+    workspace: getWorkspaceInfo(agent.config, run.repo, agent.db.locks.get(run.repo)),
+  }
 })

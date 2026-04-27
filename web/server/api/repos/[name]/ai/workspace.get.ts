@@ -1,4 +1,12 @@
-export default defineEventHandler(async (event) => {
+export default defineAgentHandler(async (event) => {
   const name = validateRepoName(getRouterParam(event, 'name'))
-  return await proxyToAgent(`/api/repos/${name}/workspace-state`)
+  const agent = useAgentRuntime(event)
+  const lock = agent.db.locks.get(name)
+  const workspace = getWorkspaceInfo(agent.config, name, lock)
+
+  return {
+    ...workspace,
+    lockStatus: lock?.status || null,
+    lockUpdatedAt: lock?.updated_at || null,
+  }
 })

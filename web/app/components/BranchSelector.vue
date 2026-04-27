@@ -1,6 +1,15 @@
 <script setup lang="ts">
-defineProps<{
-  branches: string[]
+import {
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuPortal,
+  DropdownMenuRoot,
+  DropdownMenuTrigger,
+} from 'reka-ui'
+
+const props = defineProps<{
+  branches?: string[]
+  options?: Array<{ value: string, label: string }>
   modelValue: string | undefined
 }>()
 
@@ -8,51 +17,121 @@ const emit = defineEmits<{
   (e: 'update:modelValue', value: string): void
 }>()
 
-const open = ref(false)
-const containerRef = ref<HTMLElement | null>(null)
-
-function select(branch: string) {
-  emit('update:modelValue', branch)
-  open.value = false
-}
-
-function toggle() {
-  open.value = !open.value
-}
-
-onClickOutside(containerRef, () => {
-  open.value = false
+const items = computed(() => {
+  if (props.options)
+    return props.options
+  return (props.branches || []).map(b => ({ value: b, label: b }))
 })
+
+const displayLabel = computed(() => {
+  const item = items.value.find(i => i.value === props.modelValue)
+  return item?.label || props.modelValue || 'Select'
+})
+
+function select(value: string) {
+  emit('update:modelValue', value)
+}
 </script>
 
 <template>
-  <div ref="containerRef" class="relative">
-    <button
-      type="button"
-      class="text-sm px-3 py-1.5 border border-gray-300 rounded-md bg-white inline-flex gap-2 transition-colors items-center dark:border-gray-600 dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700"
-      @click="toggle"
-    >
+  <DropdownMenuRoot>
+    <DropdownMenuTrigger class="selector-trigger">
       <span class="i-carbon-branch" />
-      <span>{{ modelValue || 'Select branch' }}</span>
-      <span
-        class="text-xs transition-transform"
-        :class="open ? 'i-carbon-chevron-up' : 'i-carbon-chevron-down'"
-      />
-    </button>
+      <span class="selector-label">{{ displayLabel }}</span>
+      <span class="i-carbon-chevron-down selector-chevron" />
+    </DropdownMenuTrigger>
 
-    <div
-      v-if="open"
-      class="mt-1 border border-gray-200 rounded-md bg-white max-h-60 min-w-full shadow-lg absolute z-10 overflow-auto dark:border-gray-700 dark:bg-gray-800"
-    >
-      <div
-        v-for="branch in branches"
-        :key="branch"
-        class="text-sm px-3 py-2 cursor-pointer transition-colors hover:bg-gray-100 dark:hover:bg-gray-700"
-        :class="branch === modelValue ? 'bg-teal-50 text-teal-700 dark:bg-teal-900/20 dark:text-teal-300' : 'text-gray-700 dark:text-gray-300'"
-        @click="select(branch)"
-      >
-        {{ branch }}
-      </div>
-    </div>
-  </div>
+    <DropdownMenuPortal>
+      <DropdownMenuContent class="selector-content" :side-offset="4">
+        <DropdownMenuItem
+          v-for="item in items"
+          :key="item.value"
+          class="selector-item"
+          :class="{ 'selector-item--active': item.value === modelValue }"
+          @select="select(item.value)"
+        >
+          {{ item.label }}
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenuPortal>
+  </DropdownMenuRoot>
 </template>
+
+<style scoped>
+.selector-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--font-size-sm);
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius-md);
+  background-color: var(--bg-surface);
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: background-color var(--transition-fast);
+}
+
+.selector-trigger:hover {
+  background-color: var(--bg-elevated);
+}
+
+.selector-trigger:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+.selector-label {
+  max-width: 12rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.selector-chevron {
+  font-size: var(--font-size-xs);
+  color: var(--text-muted);
+}
+
+.selector-content {
+  min-width: 12rem;
+  max-height: 15rem;
+  overflow: auto;
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius-md);
+  box-shadow: var(--shadow-lg);
+  z-index: var(--z-dropdown);
+  animation: slideDown 100ms ease;
+}
+
+.selector-item {
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--font-size-sm);
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: background-color var(--transition-fast);
+  outline: none;
+}
+
+.selector-item:hover,
+.selector-item[data-highlighted] {
+  background-color: var(--bg-elevated);
+}
+
+.selector-item--active {
+  background-color: var(--color-primary-light);
+  color: var(--color-primary);
+}
+
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+</style>
