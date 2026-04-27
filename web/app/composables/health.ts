@@ -31,13 +31,13 @@ export function useRunnerHealth() {
     }
   })
 
-  // 每 30 秒检查一次
+  // 每 60 秒检查一次
   let timer: ReturnType<typeof setInterval> | null = null
 
   onMounted(() => {
     timer = setInterval(() => {
       refresh()
-    }, 30_000)
+    }, 60_000)
   })
 
   onUnmounted(() => {

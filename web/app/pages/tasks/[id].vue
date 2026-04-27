@@ -1,4 +1,10 @@
 <script setup lang="ts">
+import CodeServerBanner from '~/components/run-detail/CodeServerBanner.vue'
+import EventList from '~/components/run-detail/EventList.vue'
+import RunActions from '~/components/run-detail/RunActions.vue'
+import RunHeader from '~/components/run-detail/RunHeader.vue'
+import RunInfoPanel from '~/components/run-detail/RunInfoPanel.vue'
+
 definePageMeta({
   layout: 'default',
 })

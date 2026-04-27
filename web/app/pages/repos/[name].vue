@@ -1,4 +1,10 @@
 <script setup lang="ts">
+import AiTaskList from '~/components/repo-detail/AiTaskList.vue'
+import CommitLogSection from '~/components/repo-detail/CommitLogSection.vue'
+import LiveLogPanel from '~/components/repo-detail/LiveLogPanel.vue'
+import RepoHeader from '~/components/repo-detail/RepoHeader.vue'
+import RepoWorkspace from '~/components/repo-detail/RepoWorkspace.vue'
+
 const route = useRoute('repos-name')
 const name = computed(() => route.params.name as string)
 
@@ -24,6 +30,12 @@ const { data: branchData } = useFetch<{ branches: Branch[] }>(
 const selectedBranch = ref<string | undefined>(undefined)
 
 const { commits, loading: logLoading, error: logError, refresh: refreshLog } = useRepoLog(name, 20, selectedBranch)
+const logErrorMessage = computed(() => {
+  const error = logError.value
+  if (!error)
+    return null
+  return error.data?.error || error.statusMessage || error.message || 'Failed to load commits'
+})
 const { deleteRepo, loading: deleting } = useRunner()
 
 // Debounced refresh
@@ -296,7 +308,7 @@ async function handleDelete() {
 
     <CommitLogSection
       :loading="logLoading"
-      :error="logError"
+      :error="logErrorMessage"
       @refresh="debouncedRefreshLog()"
     >
       <CommitLog :commits="commits" :loading="logLoading" />
