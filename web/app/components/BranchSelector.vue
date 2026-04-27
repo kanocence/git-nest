@@ -35,7 +35,7 @@ function select(value: string) {
 
 <template>
   <DropdownMenuRoot>
-    <DropdownMenuTrigger class="selector-trigger">
+    <DropdownMenuTrigger class="selector-trigger" type="button">
       <span class="i-carbon-branch" />
       <span class="selector-label">{{ displayLabel }}</span>
       <span class="i-carbon-chevron-down selector-chevron" />
@@ -96,17 +96,19 @@ function select(value: string) {
 .selector-content {
   min-width: 12rem;
   max-height: 15rem;
+  padding: var(--space-1);
   overflow: auto;
   background-color: var(--bg-surface);
   border: 1px solid var(--border-color);
   border-radius: var(--border-radius-md);
-  box-shadow: var(--shadow-lg);
+  box-shadow: var(--shadow-xl);
   z-index: var(--z-dropdown);
   animation: slideDown 100ms ease;
 }
 
 .selector-item {
   padding: var(--space-2) var(--space-3);
+  border-radius: var(--border-radius-sm);
   font-size: var(--font-size-sm);
   color: var(--text-primary);
   cursor: pointer;
@@ -122,6 +124,10 @@ function select(value: string) {
 .selector-item--active {
   background-color: var(--color-primary-light);
   color: var(--color-primary);
+}
+
+.selector-item--active[data-highlighted] {
+  background-color: var(--color-primary-light);
 }
 
 @keyframes slideDown {

@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import EventItem from '~/components/run-detail/EventItem.vue'
+
 interface UiEvent {
   key: string
   type: string

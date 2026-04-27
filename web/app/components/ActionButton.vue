@@ -38,7 +38,7 @@ const variantClass = computed(() => {
 .btn {
   display: inline-flex;
   align-items: center;
-  gap: var(--space-2);
+  gap: var(--space-1);
   padding: var(--space-2) var(--space-3);
   font-size: var(--font-size-sm);
   font-weight: var(--font-weight-medium);
