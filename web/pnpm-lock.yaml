@@ -74,10 +74,6 @@ overrides:
 importers:
 
   .:
-    dependencies:
-      reka-ui:
-        specifier: catalog:frontend
-        version: 2.9.6(vue@3.5.33(typescript@5.9.3))
     devDependencies:
       '@antfu/eslint-config':
         specifier: catalog:dev
@@ -124,6 +120,9 @@ importers:
       nuxt:
         specifier: ^4.3.1
         version: 4.3.1(@parcel/watcher@2.5.1)(@types/node@25.6.0)(@vue/compiler-sfc@3.5.33)(cac@6.7.14)(db0@0.3.4)(eslint@10.2.1(jiti@2.6.1))(ioredis@5.9.2)(magicast@0.5.2)(optionator@0.9.4)(rollup@4.57.1)(terser@5.39.0)(typescript@5.9.3)(vite@7.3.1(@types/node@25.6.0)(jiti@2.6.1)(terser@5.39.0)(yaml@2.8.2))(vue-tsc@3.2.7(typescript@5.9.3))(yaml@2.8.2)
+      reka-ui:
+        specifier: catalog:frontend
+        version: 2.9.6(vue@3.5.33(typescript@5.9.3))
       typescript:
         specifier: catalog:dev
         version: 5.9.3
