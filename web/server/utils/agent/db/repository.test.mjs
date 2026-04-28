@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict'
 import { createRequire } from 'node:module'
 import test from 'node:test'
-import { createEventRepository } from './repository.ts'
+import { createEventRepository, createRunRepository } from './repository.ts'
 import { initSchema } from './schema.ts'
 import { createStatements } from './statements.ts'
 
@@ -17,4 +17,51 @@ test('append preserves falsey event payloads for live subscribers', () => {
   assert.equal(events.append({ runId: 'run-1', type: 'test.false', message: 'false', payload: false }).payload, false)
   assert.equal(events.append({ runId: 'run-1', type: 'test.zero', message: 'zero', payload: 0 }).payload, 0)
   assert.equal(events.append({ runId: 'run-1', type: 'test.empty', message: 'empty', payload: '' }).payload, '')
+})
+
+function createRun(runs, id, status = 'completed', repo = 'demo') {
+  const day = Number(id.replace('run-', '')) || 1
+  const timestamp = new Date(Date.UTC(2026, 0, day)).toISOString()
+  runs.create({
+    id,
+    repo,
+    taskPath: `.git-nest/tasks/${id}.yaml`,
+    taskTitle: id,
+    sourceRef: 'main',
+    baseBranch: 'main',
+    taskBranch: `ai/${id}`,
+    status,
+    workspacePath: `/tmp/${id}`,
+    createdAt: timestamp,
+    updatedAt: timestamp,
+    lastError: null,
+  })
+}
+
+test('runs list supports limit offset status repo and total', () => {
+  const db = new DatabaseSync(':memory:')
+  initSchema(db)
+  const runs = createRunRepository(db, createStatements(db))
+  createRun(runs, 'run-1', 'completed', 'demo')
+  createRun(runs, 'run-2', 'running', 'demo')
+  createRun(runs, 'run-3', 'completed', 'other')
+
+  const page = runs.list({ limit: 1, offset: 0, status: 'completed', repo: 'demo' })
+
+  assert.equal(page.total, 1)
+  assert.equal(page.runs.length, 1)
+  assert.equal(page.runs[0].id, 'run-1')
+})
+
+test('delete removes terminal runs and rejects active runs', () => {
+  const db = new DatabaseSync(':memory:')
+  initSchema(db)
+  const runs = createRunRepository(db, createStatements(db))
+  createRun(runs, 'run-1', 'completed', 'demo')
+  createRun(runs, 'run-2', 'running', 'demo')
+
+  assert.equal(runs.delete('run-1'), true)
+  assert.equal(runs.get('run-1'), null)
+  assert.equal(runs.delete('run-2'), false)
+  assert.notEqual(runs.get('run-2'), null)
 })

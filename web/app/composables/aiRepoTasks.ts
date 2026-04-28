@@ -8,10 +8,18 @@ export function useAiRepoTasks(repoName: MaybeRef<string>, selectedBranch?: Mayb
   const branch = toRef(selectedBranch)
 
   // Tasks
+  const tasksUrl = computed(() => {
+    const query = new URLSearchParams()
+    if (branch.value)
+      query.set('ref', branch.value)
+    const suffix = query.toString()
+    return `/api/repos/${name.value}/ai/tasks${suffix ? `?${suffix}` : ''}`
+  })
+
   const { data: aiTasks, refresh: refreshAiTasks } = useFetch<AiTaskListResponse>(
-    () => `/api/repos/${name.value}/ai/tasks?ref=${encodeURIComponent(branch.value || '')}`,
+    () => tasksUrl.value,
     {
-      key: () => `ai-tasks-${name.value}-${branch.value || ''}`,
+      key: () => `ai-tasks-${name.value}-${branch.value || 'default'}`,
       default: () => ({ repo: name.value, ref: branch.value || '', tasks: [], total: 0 }),
       immediate: false,
     },

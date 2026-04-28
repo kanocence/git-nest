@@ -6,7 +6,11 @@ export interface DbStatements {
   updateRunStatus: ReturnType<DatabaseSync['prepare']>
   getRun: ReturnType<DatabaseSync['prepare']>
   listRuns: ReturnType<DatabaseSync['prepare']>
+  listRunsPaged: ReturnType<DatabaseSync['prepare']>
+  countRuns: ReturnType<DatabaseSync['prepare']>
   listRunsByStatus: ReturnType<DatabaseSync['prepare']>
+  deleteRunEvents: ReturnType<DatabaseSync['prepare']>
+  deleteRun: ReturnType<DatabaseSync['prepare']>
 
   // repo_locks
   listRepoLocks: ReturnType<DatabaseSync['prepare']>
@@ -61,10 +65,28 @@ export function createStatements(db: DatabaseSync): DbStatements {
       ORDER BY datetime(created_at) DESC
       LIMIT ?
     `),
+    listRunsPaged: db.prepare(`
+      SELECT * FROM runs
+      WHERE (? IS NULL OR status = ?)
+        AND (? IS NULL OR repo = ?)
+      ORDER BY datetime(created_at) DESC
+      LIMIT ? OFFSET ?
+    `),
+    countRuns: db.prepare(`
+      SELECT COUNT(*) AS total FROM runs
+      WHERE (? IS NULL OR status = ?)
+        AND (? IS NULL OR repo = ?)
+    `),
     listRunsByStatus: db.prepare(`
       SELECT * FROM runs
       WHERE status = ?
       ORDER BY datetime(created_at) ASC
+    `),
+    deleteRunEvents: db.prepare('DELETE FROM run_events WHERE run_id = ?'),
+    deleteRun: db.prepare(`
+      DELETE FROM runs
+      WHERE id = ?
+        AND status IN ('completed', 'failed', 'cancelled', 'system_interrupted')
     `),
     listRepoLocks: db.prepare(`
       SELECT * FROM repo_locks

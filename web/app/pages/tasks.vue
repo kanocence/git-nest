@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { AiRunListResponse } from '~/types'
+import type { AiRunListResponse, AiRunRecord } from '~/types'
 
 definePageMeta({
   layout: 'default',
@@ -7,13 +7,54 @@ definePageMeta({
 
 useHead({ title: 'AI Tasks' })
 
-const { data, status, error, refresh } = useFetch<AiRunListResponse>('/api/ai/runs', {
-  key: 'ai-runs',
-  default: () => ({ runs: [], total: 0 }),
+const statusFilter = ref('')
+const repoFilter = ref('')
+const currentPage = ref(1)
+const pageSize = ref(10)
+const pageSizeOptions = [10, 20, 50]
+const offset = computed(() => (currentPage.value - 1) * pageSize.value)
+const now = useNow({ interval: 1000 })
+
+const ACTIVE_STATUSES = new Set(['queued', 'preparing', 'running', 'waiting_approval', 'waiting_continuation'])
+const TERMINAL_STATUSES = new Set(['completed', 'failed', 'cancelled', 'system_interrupted'])
+
+const statusOptions = [
+  '',
+  'queued',
+  'preparing',
+  'running',
+  'waiting_approval',
+  'waiting_continuation',
+  'completed',
+  'failed',
+  'cancelled',
+  'system_interrupted',
+]
+
+const { repos } = useRepos()
+const repoOptions = computed(() => ['', ...repos.value.map(repo => repo.name).sort()])
+
+const runsUrl = computed(() => {
+  const query = new URLSearchParams({
+    limit: String(pageSize.value),
+    offset: String(offset.value),
+  })
+  if (statusFilter.value)
+    query.set('status', statusFilter.value)
+  if (repoFilter.value)
+    query.set('repo', repoFilter.value)
+  return `/api/ai/runs?${query.toString()}`
+})
+
+const { data, status, error, refresh } = useFetch<AiRunListResponse>(() => runsUrl.value, {
+  key: () => `ai-runs-${pageSize.value}-${offset.value}-${statusFilter.value || 'all'}-${repoFilter.value || 'all'}`,
+  default: () => ({ runs: [], total: 0, limit: pageSize.value, offset: offset.value }),
   lazy: true,
 })
 
 const runs = computed(() => data.value?.runs || [])
+const totalRuns = computed(() => data.value?.total || 0)
+const totalPages = computed(() => Math.max(1, Math.ceil(totalRuns.value / pageSize.value)))
 const loading = computed(() => status.value === 'pending')
 
 // 刷新状态锁
@@ -40,8 +81,9 @@ function formatDate(date: string) {
   })
 }
 
-function formatDuration(createdAt: string, updatedAt: string) {
-  const diff = new Date(updatedAt).getTime() - new Date(createdAt).getTime()
+function formatDuration(createdAt: string, updatedAt: string, status?: string) {
+  const end = status && ACTIVE_STATUSES.has(status) ? now.value : new Date(updatedAt)
+  const diff = end.getTime() - new Date(createdAt).getTime()
   if (diff < 0)
     return ''
   const minutes = Math.floor(diff / 60000)
@@ -76,45 +118,57 @@ function getStatusClass(status: string) {
   }
 }
 
-// Filters
-const statusFilter = ref('')
-const repoFilter = ref('')
+function isActiveRun(status: string) {
+  return ACTIVE_STATUSES.has(status)
+}
 
-const statusOptions = computed(() => {
-  const statuses = new Set(runs.value.map(r => r.status))
-  return ['', ...Array.from(statuses).sort()]
+function canDeleteRun(status: string) {
+  return TERMINAL_STATUSES.has(status)
+}
+
+const runToDelete = ref<string | null>(null)
+const deletingRun = ref(false)
+const deleteRunError = ref('')
+const showDeleteRunConfirm = computed({
+  get: () => Boolean(runToDelete.value),
+  set: (value: boolean) => {
+    if (!value) {
+      runToDelete.value = null
+      deleteRunError.value = ''
+    }
+  },
+})
+const selectedRunToDelete = computed<AiRunRecord | null>(() => {
+  if (!runToDelete.value)
+    return null
+  return runs.value.find(run => run.id === runToDelete.value) || null
 })
 
-const repoOptions = computed(() => {
-  const repos = new Set(runs.value.map(r => r.repo))
-  return ['', ...Array.from(repos).sort()]
-})
+async function deleteRun() {
+  if (!runToDelete.value)
+    return
+  deletingRun.value = true
+  deleteRunError.value = ''
+  try {
+    await $fetch(`/api/ai/runs/${runToDelete.value}`, { method: 'DELETE' })
+    runToDelete.value = null
+    await refresh()
+  }
+  catch (error: any) {
+    deleteRunError.value = error?.data?.error || error?.statusMessage || 'Delete run failed'
+  }
+  finally {
+    deletingRun.value = false
+  }
+}
 
-// Pagination
-const currentPage = ref(1)
-const pageSize = ref(10)
-const pageSizeOptions = [10, 20, 50]
-
-const filteredRuns = computed(() => {
-  return runs.value.filter((run) => {
-    if (statusFilter.value && run.status !== statusFilter.value)
-      return false
-    if (repoFilter.value && run.repo !== repoFilter.value)
-      return false
-    return true
-  })
-})
-
-const totalPages = computed(() => Math.max(1, Math.ceil(filteredRuns.value.length / pageSize.value)))
-
-const paginatedRuns = computed(() => {
-  const start = (currentPage.value - 1) * pageSize.value
-  return filteredRuns.value.slice(start, start + pageSize.value)
-})
-
-// Reset to first page when filters change
 watch([statusFilter, repoFilter, pageSize], () => {
   currentPage.value = 1
+})
+
+watch(totalPages, (pages) => {
+  if (currentPage.value > pages)
+    currentPage.value = pages
 })
 </script>
 
@@ -139,7 +193,6 @@ watch([statusFilter, repoFilter, pageSize], () => {
       />
     </div>
 
-    <!-- Filters -->
     <div class="filters">
       <div class="filter-group">
         <label class="filter-label">Status</label>
@@ -158,6 +211,7 @@ watch([statusFilter, repoFilter, pageSize], () => {
       <button
         v-if="statusFilter || repoFilter"
         class="clear-filters"
+        type="button"
         @click="statusFilter = ''; repoFilter = ''"
       >
         Clear filters
@@ -172,26 +226,38 @@ watch([statusFilter, repoFilter, pageSize], () => {
       <span>Loading AI runs...</span>
     </div>
 
-    <div v-else-if="filteredRuns.length === 0" class="empty-state">
-      {{ runs.length === 0 ? 'No AI runs yet.' : 'No runs match the selected filters.' }}
+    <div v-else-if="runs.length === 0" class="empty-state">
+      {{ statusFilter || repoFilter ? 'No runs match the selected filters.' : 'No AI runs yet.' }}
     </div>
 
     <div v-else class="run-list">
       <div
-        v-for="run in paginatedRuns"
+        v-for="run in runs"
         :key="run.id"
         class="run-card"
+        :class="{ 'run-card--active': isActiveRun(run.status) }"
       >
         <div class="run-card-header">
-          <NuxtLink :to="`/tasks/${run.id}`" class="run-link">
-            {{ run.task_title || run.task_path }}
-          </NuxtLink>
-          <span
-            class="status-badge"
-            :class="getStatusClass(run.status)"
+          <div class="run-title-row">
+            <NuxtLink :to="`/tasks/${run.id}`" class="run-link">
+              {{ run.task_title || run.task_path }}
+            </NuxtLink>
+            <span
+              class="status-badge"
+              :class="getStatusClass(run.status)"
+            >
+              {{ run.status }}
+            </span>
+          </div>
+          <button
+            v-if="canDeleteRun(run.status)"
+            class="run-delete-btn"
+            title="Delete run"
+            type="button"
+            @click="runToDelete = run.id"
           >
-            {{ run.status }}
-          </span>
+            <span class="i-carbon-trash-can" />
+          </button>
         </div>
         <div class="run-meta">
           Repo:
@@ -203,7 +269,7 @@ watch([statusFilter, repoFilter, pageSize], () => {
           Branch: <code>{{ run.task_branch }}</code>
         </div>
         <div class="run-meta">
-          Duration: {{ formatDuration(run.created_at, run.updated_at) }}
+          Duration: {{ formatDuration(run.created_at, run.updated_at, run.status) }}
         </div>
         <div class="run-time">
           Created {{ formatDate(run.created_at) }} · Updated {{ formatDate(run.updated_at) }}
@@ -213,12 +279,12 @@ watch([statusFilter, repoFilter, pageSize], () => {
         </div>
       </div>
 
-      <!-- Pagination -->
-      <div v-if="totalPages > 1 || filteredRuns.length > 10" class="pagination">
+      <div v-if="totalPages > 1 || totalRuns > pageSize" class="pagination">
         <div class="pagination-nav">
           <button
             :disabled="currentPage <= 1"
             class="pagination-btn"
+            type="button"
             @click="currentPage--"
           >
             <span class="i-carbon-chevron-left" />
@@ -229,13 +295,14 @@ watch([statusFilter, repoFilter, pageSize], () => {
           <button
             :disabled="currentPage >= totalPages"
             class="pagination-btn"
+            type="button"
             @click="currentPage++"
           >
             <span class="i-carbon-chevron-right" />
           </button>
         </div>
         <div class="pagination-size">
-          <span class="run-count">{{ filteredRuns.length }} runs</span>
+          <span class="run-count">{{ totalRuns }} runs</span>
           <select v-model="pageSize" class="size-select">
             <option v-for="size in pageSizeOptions" :key="size" :value="size">
               {{ size }} / page
@@ -244,6 +311,28 @@ watch([statusFilter, repoFilter, pageSize], () => {
         </div>
       </div>
     </div>
+
+    <ModalDialog v-model="showDeleteRunConfirm" title="Delete Run">
+      <p>
+        Are you sure you want to delete
+        <strong>{{ selectedRunToDelete?.task_title || selectedRunToDelete?.task_path || runToDelete }}</strong>?
+      </p>
+      <p class="warning-text">
+        This removes the run record and its saved workspace metadata. Active runs cannot be deleted.
+      </p>
+      <div v-if="deleteRunError" class="error-text">
+        {{ deleteRunError }}
+      </div>
+      <template #actions>
+        <ActionButton
+          label="Delete"
+          icon="i-carbon-trash-can"
+          variant="danger"
+          :loading="deletingRun"
+          @click="deleteRun"
+        />
+      </template>
+    </ModalDialog>
   </div>
 </template>
 
@@ -346,12 +435,47 @@ watch([statusFilter, repoFilter, pageSize], () => {
   background-color: var(--bg-surface);
 }
 
+.run-card--active {
+  position: relative;
+  overflow: hidden;
+  border-color: color-mix(in srgb, var(--color-info) 35%, var(--border-color));
+}
+
+.run-card--active > * {
+  position: relative;
+  z-index: 1;
+}
+
+.run-card--active::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(
+    110deg,
+    transparent 0%,
+    color-mix(in srgb, var(--color-info) 8%, transparent) 35%,
+    color-mix(in srgb, var(--color-info) 14%, transparent) 50%,
+    color-mix(in srgb, var(--color-info) 8%, transparent) 65%,
+    transparent 100%
+  );
+  background-size: 240% 100%;
+  animation: activeRunSweep 2.4s linear infinite;
+}
+
 .run-card-header {
+  display: flex;
+  gap: var(--space-2);
+  align-items: flex-start;
+  justify-content: space-between;
+}
+
+.run-title-row {
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-2);
   align-items: center;
-  justify-content: space-between;
+  min-width: 0;
 }
 
 .run-link {
@@ -364,6 +488,28 @@ watch([statusFilter, repoFilter, pageSize], () => {
 
 .run-link:hover {
   text-decoration: underline;
+}
+
+.run-delete-btn {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  color: var(--color-danger);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--border-radius-md);
+  cursor: pointer;
+  transition:
+    background-color var(--transition-fast),
+    border-color var(--transition-fast);
+}
+
+.run-delete-btn:hover {
+  background-color: var(--color-danger-light);
+  border-color: var(--color-danger-border-subtle);
 }
 
 .status-badge {
@@ -446,11 +592,16 @@ watch([statusFilter, repoFilter, pageSize], () => {
 }
 
 .pagination-btn {
-  padding: var(--space-1) var(--space-2);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
   font-size: var(--font-size-sm);
   border: 1px solid var(--border-color);
   border-radius: var(--border-radius-sm);
   background-color: var(--bg-surface);
+  color: var(--text-primary);
   cursor: pointer;
   transition: background-color var(--transition-fast);
 }
@@ -489,6 +640,27 @@ watch([statusFilter, repoFilter, pageSize], () => {
   color: var(--text-primary);
 }
 
+.warning-text {
+  font-size: var(--font-size-sm);
+  color: var(--color-danger);
+  margin-top: var(--space-2);
+}
+
+.error-text {
+  font-size: var(--font-size-sm);
+  color: var(--color-danger);
+  margin-top: var(--space-2);
+}
+
+@keyframes activeRunSweep {
+  from {
+    background-position: 120% 0;
+  }
+  to {
+    background-position: -120% 0;
+  }
+}
+
 @keyframes pulse {
   0%,
   100% {
@@ -496,6 +668,13 @@ watch([statusFilter, repoFilter, pageSize], () => {
   }
   50% {
     opacity: 0.5;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .run-card--active::before,
+  .loading-state {
+    animation: none;
   }
 }
 </style>

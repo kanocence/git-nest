@@ -210,6 +210,8 @@ export interface NodeOutput {
 export interface RunListResponse {
   runs: RunRecord[]
   total: number
+  limit?: number
+  offset?: number
 }
 
 export interface RunDetailResponse {

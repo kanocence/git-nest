@@ -93,7 +93,7 @@ function select(value: string) {
   color: var(--text-muted);
 }
 
-.selector-content {
+:global(.selector-content) {
   min-width: 12rem;
   max-height: 15rem;
   padding: var(--space-1);
@@ -106,7 +106,7 @@ function select(value: string) {
   animation: slideDown 100ms ease;
 }
 
-.selector-item {
+:global(.selector-item) {
   padding: var(--space-2) var(--space-3);
   border-radius: var(--border-radius-sm);
   font-size: var(--font-size-sm);
@@ -116,17 +116,17 @@ function select(value: string) {
   outline: none;
 }
 
-.selector-item:hover,
-.selector-item[data-highlighted] {
+:global(.selector-item:hover),
+:global(.selector-item[data-highlighted]) {
   background-color: var(--bg-elevated);
 }
 
-.selector-item--active {
+:global(.selector-item--active) {
   background-color: var(--color-primary-light);
   color: var(--color-primary);
 }
 
-.selector-item--active[data-highlighted] {
+:global(.selector-item--active[data-highlighted]) {
   background-color: var(--color-primary-light);
 }
 
