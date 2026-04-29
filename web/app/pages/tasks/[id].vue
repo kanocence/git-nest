@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import CodeServerBanner from '~/components/run-detail/CodeServerBanner.vue'
 import EventList from '~/components/run-detail/EventList.vue'
+import HermesOutputPanel from '~/components/run-detail/HermesOutputPanel.vue'
 import RunActions from '~/components/run-detail/RunActions.vue'
 import RunHeader from '~/components/run-detail/RunHeader.vue'
 import RunInfoPanel from '~/components/run-detail/RunInfoPanel.vue'
@@ -93,6 +94,9 @@ watch(isConnected, (connected) => {
       <div v-if="run.last_error" class="alert alert--error">
         {{ run.last_error }}
       </div>
+
+      <!-- Hermes Output -->
+      <HermesOutputPanel :events="allEvents" :is-live="isConnected" />
 
       <!-- Events -->
       <EventList :events="allEvents" />

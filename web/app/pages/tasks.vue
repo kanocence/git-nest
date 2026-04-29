@@ -1,5 +1,7 @@
 <script setup lang="ts">
+import type { UiEvent } from '#shared/utils/ai-events'
 import type { AiRunListResponse, AiRunRecord } from '~/types'
+import { toUiEvent } from '#shared/utils/ai-events'
 
 definePageMeta({
   layout: 'default',
@@ -56,6 +58,9 @@ const runs = computed(() => data.value?.runs || [])
 const totalRuns = computed(() => data.value?.total || 0)
 const totalPages = computed(() => Math.max(1, Math.ceil(totalRuns.value / pageSize.value)))
 const loading = computed(() => status.value === 'pending')
+const latestRunEvents = ref<Record<string, UiEvent>>({})
+
+const { data: sseData } = useEventSource('/api/ai/events')
 
 // 刷新状态锁
 const isRefreshing = ref(false)
@@ -70,6 +75,26 @@ const debouncedRefresh = useDebounceFn(async () => {
     isRefreshing.value = false
   }
 }, 300)
+
+watch(sseData, (newData) => {
+  if (!newData)
+    return
+  try {
+    const event = JSON.parse(newData)
+    const runId = event.runId || event.run_id
+    if (!runId)
+      return
+    latestRunEvents.value = {
+      ...latestRunEvents.value,
+      [runId]: toUiEvent(event, true),
+    }
+    if (['run.completed', 'run.failed', 'run.cancelled', 'run.released', 'run.waiting_approval', 'run.waiting_continuation'].includes(event.type))
+      debouncedRefresh()
+  }
+  catch {
+    // ignore malformed event payloads
+  }
+})
 
 function formatDate(date: string) {
   return new Date(date).toLocaleString('zh-CN', {
@@ -124,6 +149,17 @@ function isActiveRun(status: string) {
 
 function canDeleteRun(status: string) {
   return TERMINAL_STATUSES.has(status)
+}
+
+function getRunSummary(run: AiRunRecord) {
+  const latestEvent = latestRunEvents.value[run.id]
+  if (latestEvent)
+    return latestEvent.message
+  if (run.last_error)
+    return run.last_error
+  if (isActiveRun(run.status))
+    return 'Waiting for live executor output...'
+  return `Last known status: ${run.status}`
 }
 
 const runToDelete = ref<string | null>(null)
@@ -274,12 +310,16 @@ watch(totalPages, (pages) => {
         <div class="run-time">
           Created {{ formatDate(run.created_at) }} · Updated {{ formatDate(run.updated_at) }}
         </div>
+        <div class="run-summary" :class="{ 'run-summary--live': Boolean(latestRunEvents[run.id]) }">
+          <span class="i-carbon-terminal" />
+          <span>{{ getRunSummary(run) }}</span>
+        </div>
         <div v-if="run.last_error" class="run-error">
           {{ run.last_error }}
         </div>
       </div>
 
-      <div v-if="totalPages > 1 || totalRuns > pageSize" class="pagination">
+      <div class="pagination">
         <div class="pagination-nav">
           <button
             :disabled="currentPage <= 1"
@@ -439,6 +479,8 @@ watch(totalPages, (pages) => {
   position: relative;
   overflow: hidden;
   border-color: color-mix(in srgb, var(--color-info) 35%, var(--border-color));
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-info) 10%, transparent);
+  animation: activeRunGlow 2.4s ease-in-out infinite;
 }
 
 .run-card--active > * {
@@ -449,18 +491,11 @@ watch(totalPages, (pages) => {
 .run-card--active::before {
   content: '';
   position: absolute;
-  inset: 0;
+  inset: 0 auto 0 0;
+  width: 0.25rem;
   pointer-events: none;
-  background: linear-gradient(
-    110deg,
-    transparent 0%,
-    color-mix(in srgb, var(--color-info) 8%, transparent) 35%,
-    color-mix(in srgb, var(--color-info) 14%, transparent) 50%,
-    color-mix(in srgb, var(--color-info) 8%, transparent) 65%,
-    transparent 100%
-  );
-  background-size: 240% 100%;
-  animation: activeRunSweep 2.4s linear infinite;
+  background: var(--color-info);
+  opacity: 0.85;
 }
 
 .run-card-header {
@@ -576,6 +611,30 @@ watch(totalPages, (pages) => {
   overflow: hidden;
 }
 
+.run-summary {
+  display: flex;
+  gap: var(--space-2);
+  align-items: flex-start;
+  margin-top: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--border-radius-md);
+  font-size: var(--font-size-xs);
+  color: var(--text-secondary);
+  background-color: var(--bg-elevated);
+}
+
+.run-summary--live {
+  color: var(--color-info);
+  background-color: var(--color-info-light);
+}
+
+.run-summary span:last-child {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
 .pagination {
   display: flex;
   flex-wrap: wrap;
@@ -652,12 +711,13 @@ watch(totalPages, (pages) => {
   margin-top: var(--space-2);
 }
 
-@keyframes activeRunSweep {
-  from {
-    background-position: 120% 0;
+@keyframes activeRunGlow {
+  0%,
+  100% {
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-info) 10%, transparent);
   }
-  to {
-    background-position: -120% 0;
+  50% {
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-info) 22%, transparent);
   }
 }
 
@@ -672,7 +732,7 @@ watch(totalPages, (pages) => {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .run-card--active::before,
+  .run-card--active,
   .loading-state {
     animation: none;
   }

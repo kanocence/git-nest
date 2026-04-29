@@ -29,10 +29,27 @@ const emit = defineEmits<{
   'deleteTask': [taskPath: string]
   'startTask': [taskPath: string]
   'upload': [file: File]
-  'update:showCreateTaskDialog': [visible: boolean]
+  'update:show-create-task-dialog': [visible: boolean]
 }>()
 
 const taskFileInput = ref<HTMLInputElement | null>(null)
+const currentPage = ref(1)
+const pageSize = ref(5)
+const pageSizeOptions = [5, 10, 20]
+const createDialogVisible = computed({
+  get: () => props.showCreateTaskDialog,
+  set: (visible: boolean) => emit('update:show-create-task-dialog', visible),
+})
+const totalPages = computed(() => Math.max(1, Math.ceil(props.tasks.length / pageSize.value)))
+const pagedTasks = computed(() => {
+  const start = (currentPage.value - 1) * pageSize.value
+  return props.tasks.slice(start, start + pageSize.value)
+})
+
+watch([() => props.tasks.length, pageSize], () => {
+  if (currentPage.value > totalPages.value)
+    currentPage.value = totalPages.value
+})
 
 function triggerUpload() {
   taskFileInput.value?.click()
@@ -82,7 +99,7 @@ function formatMs(ms: number) {
         <ActionButton
           label="Create Task"
           icon="i-carbon-add"
-          @click="emit('update:showCreateTaskDialog', true)"
+          @click="createDialogVisible = true"
         />
         <ActionButton
           label="Upload Task"
@@ -103,12 +120,11 @@ function formatMs(ms: number) {
     >
 
     <TaskCreatorDialog
-      :model-value="showCreateTaskDialog"
+      v-model="createDialogVisible"
       :branches="branches"
       :selected-branch="selectedBranch"
       :creating="creatingTask"
       :error="createTaskError"
-      @update:model-value="emit('update:showCreateTaskDialog', $event)"
       @create="emit('createTask', $event)"
     />
 
@@ -146,7 +162,7 @@ function formatMs(ms: number) {
 
     <div v-if="tasks.length" class="task-list">
       <div
-        v-for="task in tasks"
+        v-for="task in pagedTasks"
         :key="task.path"
         class="task-card"
       >
@@ -213,6 +229,38 @@ function formatMs(ms: number) {
 
         <div v-if="task.parseError" class="task-error">
           {{ task.parseError }}
+        </div>
+      </div>
+
+      <div class="task-pagination">
+        <div class="pagination-nav">
+          <button
+            class="pagination-btn"
+            type="button"
+            :disabled="currentPage <= 1"
+            @click="currentPage--"
+          >
+            <span class="i-carbon-chevron-left" />
+          </button>
+          <span class="pagination-info">
+            {{ currentPage }} / {{ totalPages }}
+          </span>
+          <button
+            class="pagination-btn"
+            type="button"
+            :disabled="currentPage >= totalPages"
+            @click="currentPage++"
+          >
+            <span class="i-carbon-chevron-right" />
+          </button>
+        </div>
+        <div class="pagination-size">
+          <span>{{ tasks.length }} task YAML</span>
+          <select v-model="pageSize" class="page-size-select">
+            <option v-for="size in pageSizeOptions" :key="size" :value="size">
+              {{ size }} / page
+            </option>
+          </select>
         </div>
       </div>
     </div>
@@ -406,6 +454,59 @@ function formatMs(ms: number) {
   font-size: var(--font-size-xs);
   color: var(--color-danger);
   margin-top: var(--space-2);
+}
+
+.task-pagination {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  align-items: center;
+  justify-content: space-between;
+  margin-top: var(--space-3);
+}
+
+.pagination-nav,
+.pagination-size {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+}
+
+.pagination-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  color: var(--text-primary);
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius-sm);
+  cursor: pointer;
+}
+
+.pagination-btn:hover:not(:disabled) {
+  background-color: var(--bg-elevated);
+}
+
+.pagination-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.pagination-info,
+.pagination-size {
+  font-size: var(--font-size-sm);
+  color: var(--text-secondary);
+}
+
+.page-size-select {
+  padding: var(--space-1) var(--space-2);
+  font-size: var(--font-size-sm);
+  color: var(--text-primary);
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius-sm);
 }
 
 .task-empty {

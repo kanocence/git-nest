@@ -1,36 +1,73 @@
 <script setup lang="ts">
 import type { UiEvent } from '#shared/utils/ai-events'
+import type { AiRunRecord } from '~/types'
 import { summarizeUiEvents } from '#shared/utils/ai-events'
 
 const props = defineProps<{
   events: UiEvent[]
   isLive: boolean
+  lastRun: AiRunRecord | null
 }>()
 
 const show = ref(false)
 const summary = computed(() => summarizeUiEvents(props.events))
 const recentEvents = computed(() => props.events.slice().reverse())
+const hasPanelContent = computed(() => props.events.length > 0 || props.isLive || Boolean(props.lastRun))
+const panelStatus = computed(() => props.events.length ? summary.value.status : formatRunStatus(props.lastRun?.status))
+const panelTone = computed(() => props.events.length ? summary.value.tone : getRunTone(props.lastRun?.status))
+const panelMessage = computed(() => props.events.length ? summary.value.latestMessage : getRunMessage(props.lastRun))
+
+watch(() => [props.isLive, props.events.length] as const, ([isLive, eventCount]) => {
+  if (isLive || eventCount > 0)
+    show.value = true
+}, { immediate: true })
+
+function formatRunStatus(status?: string) {
+  if (!status)
+    return 'Idle'
+  return status.replace(/_/g, ' ')
+}
+
+function getRunTone(status?: string) {
+  if (status === 'completed')
+    return 'success'
+  if (status === 'failed' || status === 'system_interrupted')
+    return 'danger'
+  if (status === 'waiting_approval' || status === 'waiting_continuation')
+    return 'warning'
+  if (status === 'running' || status === 'queued' || status === 'preparing')
+    return 'info'
+  return 'neutral'
+}
+
+function getRunMessage(run: AiRunRecord | null) {
+  if (!run)
+    return 'Waiting for events'
+  if (run.last_error)
+    return run.last_error
+  return `${run.task_title || run.task_path} is ${formatRunStatus(run.status)}`
+}
 </script>
 
 <template>
-  <div v-if="events.length || isLive" class="log-panel">
+  <div v-if="hasPanelContent" class="log-panel">
     <button class="log-toggle" @click="show = !show">
       <div class="log-toggle-content">
         <span class="i-carbon-terminal" />
         <span class="log-toggle-title">Live Logs</span>
         <span v-if="isLive" class="live-indicator">● Live</span>
-        <span v-if="events.length" class="summary-badge" :class="`summary-badge--${summary.tone}`">
-          {{ summary.status }}
+        <span class="summary-badge" :class="`summary-badge--${panelTone}`">
+          {{ panelStatus }}
         </span>
       </div>
       <div class="log-toggle-meta">
-        <span v-if="events.length" class="event-total">{{ summary.total }} events</span>
+        <span class="event-total">{{ summary.total }} events</span>
         <span :class="show ? 'i-carbon-chevron-up' : 'i-carbon-chevron-down'" />
       </div>
     </button>
 
     <div v-if="show" class="log-content">
-      <div v-if="!events.length" class="log-empty">
+      <div v-if="!events.length && !lastRun" class="log-empty">
         Waiting for events...
       </div>
       <div v-else>
@@ -40,7 +77,7 @@ const recentEvents = computed(() => props.events.slice().reverse())
               Latest
             </div>
             <div class="summary-message">
-              {{ summary.latestMessage }}
+              {{ panelMessage }}
             </div>
           </div>
           <div class="summary-counts">
@@ -48,7 +85,7 @@ const recentEvents = computed(() => props.events.slice().reverse())
             <span>acceptance {{ summary.acceptanceEventCount }}</span>
           </div>
         </div>
-        <div class="log-entries">
+        <div v-if="events.length" class="log-entries">
           <div
             v-for="evt in recentEvents"
             :key="evt.key"

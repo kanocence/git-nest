@@ -17,6 +17,8 @@ const emit = defineEmits<{
   (e: 'update:modelValue', value: string): void
 }>()
 
+const dropdownStyles = useCssModule('dropdown')
+
 const items = computed(() => {
   if (props.options)
     return props.options
@@ -42,12 +44,11 @@ function select(value: string) {
     </DropdownMenuTrigger>
 
     <DropdownMenuPortal>
-      <DropdownMenuContent class="selector-content" :side-offset="4">
+      <DropdownMenuContent :class="dropdownStyles.content" :side-offset="4">
         <DropdownMenuItem
           v-for="item in items"
           :key="item.value"
-          class="selector-item"
-          :class="{ 'selector-item--active': item.value === modelValue }"
+          :class="[dropdownStyles.item, { [dropdownStyles.active]: item.value === modelValue }]"
           @select="select(item.value)"
         >
           {{ item.label }}
@@ -92,8 +93,10 @@ function select(value: string) {
   font-size: var(--font-size-xs);
   color: var(--text-muted);
 }
+</style>
 
-.selector-content {
+<style module="dropdown">
+.content {
   min-width: 12rem;
   max-height: 15rem;
   padding: var(--space-1);
@@ -103,10 +106,10 @@ function select(value: string) {
   border-radius: var(--border-radius-md);
   box-shadow: var(--shadow-xl);
   z-index: var(--z-dropdown);
-  animation: slideDown 100ms ease;
+  animation: dropdownSlideDown 100ms ease;
 }
 
-.selector-item {
+.item {
   padding: var(--space-2) var(--space-3);
   border-radius: var(--border-radius-sm);
   font-size: var(--font-size-sm);
@@ -116,21 +119,21 @@ function select(value: string) {
   outline: none;
 }
 
-.selector-item:hover,
-.selector-item[data-highlighted] {
+.item:hover,
+.item[data-highlighted] {
   background-color: var(--bg-elevated);
 }
 
-.selector-item--active {
+.active {
   background-color: var(--color-primary-light);
   color: var(--color-primary);
 }
 
-.selector-item--active[data-highlighted] {
+.active[data-highlighted] {
   background-color: var(--color-primary-light);
 }
 
-@keyframes slideDown {
+@keyframes dropdownSlideDown {
   from {
     opacity: 0;
     transform: translateY(-4px);

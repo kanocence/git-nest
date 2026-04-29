@@ -30,6 +30,7 @@ const EVENT_MESSAGES: Record<string, string> = {
   'run.continuation_started': 'Continuation started',
   'run.continuation_stopped': 'Continuation stopped',
   'run.executor_completed': 'Executor completed',
+  'run.executor_heartbeat': 'Executor still running',
   'run.queued': 'Run queued',
   'run.rejected': 'Run rejected',
   'run.released': 'Run released',
@@ -81,6 +82,11 @@ const REFRESH_AI_EVENT_TYPES = new Set([
   'run.waiting_continuation',
 ])
 
+const HERMES_OUTPUT_EVENT_TYPES = new Set([
+  'run.executor_log',
+  'run.executor_progress',
+])
+
 export function toUiEvent(raw: any, isLive = false): UiEvent {
   const type = raw.type || 'unknown'
   const message = getEventMessage(type, raw)
@@ -116,13 +122,24 @@ export function summarizeUiEvents(events: UiEvent[]): AiEventSummary {
     tone: statusType ? STATUS_TONES[statusType] || 'neutral' : 'neutral',
     latestMessage: latest?.message || 'Waiting for events',
     latestAt: latest?.createdAt || '',
-    executorEventCount: events.filter(event => event.type === 'run.executor_log' || event.type === 'run.executor_progress').length,
+    executorEventCount: events.filter(event => event.type === 'run.executor_log' || event.type === 'run.executor_progress' || event.type === 'run.executor_heartbeat').length,
     acceptanceEventCount: events.filter(event => event.type.startsWith('run.acceptance_')).length,
   }
 }
 
 export function shouldRefreshAiState(type: string): boolean {
   return REFRESH_AI_EVENT_TYPES.has(type)
+}
+
+export function isHermesOutputEvent(event: Pick<UiEvent, 'type'>): boolean {
+  return HERMES_OUTPUT_EVENT_TYPES.has(event.type)
+}
+
+export function getHermesOutputText(events: Array<Pick<UiEvent, 'type' | 'message'>>): string {
+  return events
+    .filter(isHermesOutputEvent)
+    .map(event => event.message)
+    .join('')
 }
 
 function getEventMessage(type: string, raw: any): string {
