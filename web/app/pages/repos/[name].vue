@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import type { UiEvent } from '#shared/utils/ai-events'
+import { shouldRefreshAiState, toUiEvent } from '#shared/utils/ai-events'
 import AiTaskList from '~/components/repo-detail/AiTaskList.vue'
 import CommitLogSection from '~/components/repo-detail/CommitLogSection.vue'
 import LiveLogPanel from '~/components/repo-detail/LiveLogPanel.vue'
@@ -198,7 +200,7 @@ const editorUrl = computed(() => {
 })
 
 // SSE live logs
-const liveEvents = ref<Array<{ type: string, message: string, createdAt: string }>>([])
+const liveEvents = ref<UiEvent[]>([])
 const { data: sseData } = useEventSource('/api/ai/events')
 
 watch(sseData, (newData) => {
@@ -212,35 +214,12 @@ watch(sseData, (newData) => {
     if (!isRelevant)
       return
 
-    const type = event.type || 'unknown'
-    let message = event.message
-    if (!message) {
-      if (type === 'run.executor_log')
-        message = event.log || '[executor log]'
-      else if (type === 'run.queued')
-        message = 'Run queued'
-      else if (type === 'run.started')
-        message = 'Run started'
-      else if (type === 'run.completed')
-        message = 'Run completed'
-      else if (type === 'run.failed')
-        message = `Run failed: ${event.error || ''}`
-      else if (type === 'run.released')
-        message = 'Run released'
-      else if (type === 'connected')
-        message = 'Connected to event stream'
-      else if (type === 'run.waiting_approval')
-        message = 'Run waiting for approval'
-      else if (type === 'run.waiting_continuation')
-        message = 'Run waiting for continuation'
-      else message = JSON.stringify(event.payload ?? event)
-    }
-
-    liveEvents.value.push({ type, message, createdAt: new Date().toISOString() })
+    const uiEvent = toUiEvent(event, true)
+    liveEvents.value.push(uiEvent)
     if (liveEvents.value.length > 20)
       liveEvents.value = liveEvents.value.slice(-20)
 
-    if (['run.completed', 'run.failed', 'run.cancelled', 'run.released', 'run.waiting_approval', 'run.waiting_continuation'].includes(type)) {
+    if (shouldRefreshAiState(uiEvent.type)) {
       refreshAiWorkspace()
       refreshAiRuns()
     }
@@ -300,15 +279,15 @@ async function handleDelete() {
       :uploading="uploading"
       :upload-success="uploadSuccess"
       :upload-error="uploadError"
-      :ai-action-error="aiActionError"
       :show-create-task-dialog="showCreateTaskDialog"
       :creating-task="creatingTask"
       :create-task-error="createTaskError"
+      :ai-action-error="aiActionError"
       :ai-starting-task-path="aiStartingTaskPath"
-      @upload="handleTaskUpload"
       @update:show-create-task-dialog="showCreateTaskDialog = $event"
-      @start-task="promptStartAiTask"
+      @upload="handleTaskUpload"
       @create-task="handleCreateTask"
+      @start-task="promptStartAiTask"
       @delete-task="confirmDeleteTask"
     />
 
