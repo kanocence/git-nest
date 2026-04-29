@@ -25,21 +25,17 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits<{
-  'createTask': [payload: TaskCreateInput]
-  'deleteTask': [taskPath: string]
-  'startTask': [taskPath: string]
-  'upload': [file: File]
-  'update:show-create-task-dialog': [visible: boolean]
+  createTask: [payload: TaskCreateInput]
+  deleteTask: [taskPath: string]
+  startTask: [taskPath: string]
+  upload: [file: File]
 }>()
 
 const taskFileInput = ref<HTMLInputElement | null>(null)
 const currentPage = ref(1)
 const pageSize = ref(5)
 const pageSizeOptions = [5, 10, 20]
-const createDialogVisible = computed({
-  get: () => props.showCreateTaskDialog,
-  set: (visible: boolean) => emit('update:show-create-task-dialog', visible),
-})
+const createDialogVisible = ref(false)
 const totalPages = computed(() => Math.max(1, Math.ceil(props.tasks.length / pageSize.value)))
 const pagedTasks = computed(() => {
   const start = (currentPage.value - 1) * pageSize.value
@@ -49,6 +45,16 @@ const pagedTasks = computed(() => {
 watch([() => props.tasks.length, pageSize], () => {
   if (currentPage.value > totalPages.value)
     currentPage.value = totalPages.value
+})
+
+watch(() => props.showCreateTaskDialog, (visible) => {
+  if (visible)
+    createDialogVisible.value = true
+})
+
+watch(() => props.creatingTask, (creating, wasCreating) => {
+  if (wasCreating && !creating && !props.createTaskError)
+    createDialogVisible.value = false
 })
 
 function triggerUpload() {

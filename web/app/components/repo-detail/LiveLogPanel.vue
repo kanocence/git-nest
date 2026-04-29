@@ -85,6 +85,12 @@ function getRunMessage(run: AiRunRecord | null) {
             <span>acceptance {{ summary.acceptanceEventCount }}</span>
           </div>
         </div>
+        <div v-if="lastRun" class="run-detail-link-row">
+          <NuxtLink :to="`/tasks/${lastRun.id}`" class="run-detail-link">
+            <span class="i-carbon-arrow-right" />
+            Open run details
+          </NuxtLink>
+        </div>
         <div v-if="events.length" class="log-entries">
           <div
             v-for="evt in recentEvents"
@@ -231,6 +237,25 @@ function getRunMessage(run: AiRunRecord | null) {
   font-size: var(--font-size-xs);
   color: var(--text-secondary);
   white-space: nowrap;
+}
+
+.run-detail-link-row {
+  padding: var(--space-2) var(--space-4);
+  border-bottom: 1px solid var(--border-color);
+  background-color: var(--bg-surface);
+}
+
+.run-detail-link {
+  display: inline-flex;
+  gap: var(--space-1);
+  align-items: center;
+  font-size: var(--font-size-sm);
+  color: var(--color-primary);
+  text-decoration: none;
+}
+
+.run-detail-link:hover {
+  text-decoration: underline;
 }
 
 .log-entry {

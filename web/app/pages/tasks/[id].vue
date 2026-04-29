@@ -10,8 +10,8 @@ definePageMeta({
   layout: 'default',
 })
 
-const route = useRoute('tasks-id')
-const id = computed(() => route.params.id as string)
+const route = useRoute()
+const id = computed(() => String((route.params as Record<string, unknown>).id || ''))
 
 useHead({
   title: () => `AI Run ${id.value}`,
