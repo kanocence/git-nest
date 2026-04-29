@@ -285,7 +285,6 @@ async function handleDelete() {
       :create-task-error="createTaskError"
       :ai-action-error="aiActionError"
       :ai-starting-task-path="aiStartingTaskPath"
-      @update:show-create-task-dialog="showCreateTaskDialog = $event"
       @upload="handleTaskUpload"
       @create-task="handleCreateTask"
       @start-task="promptStartAiTask"
