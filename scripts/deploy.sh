@@ -21,6 +21,22 @@ log_error() {
   printf "${red}[ERROR]${nc} %s\n" "$1"
 }
 
+CUSTOM_CODE_SERVER=0
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --custom-code-server)
+      CUSTOM_CODE_SERVER=1
+      shift
+      ;;
+    *)
+      log_error "Unknown option: $1"
+      printf 'Usage: sh scripts/deploy.sh [--custom-code-server]\n' >&2
+      exit 1
+      ;;
+  esac
+done
+
 # 检查命令是否存在
 check_command() {
   if ! command -v "$1" >/dev/null 2>&1; then
@@ -139,14 +155,25 @@ validate_env
 
 # 初始化宿主目录
 log_info "执行 init-host.sh ..."
-sh scripts/init-host.sh
+if [ "$CUSTOM_CODE_SERVER" -eq 1 ]; then
+  sh scripts/init-host.sh --custom-code-server
+else
+  sh scripts/init-host.sh
+fi
 
 # 拉取镜像并启动
-log_info "拉取最新镜像..."
-docker compose -f docker-compose.yml -f docker-compose.release.yml pull
+if [ "$CUSTOM_CODE_SERVER" -eq 1 ]; then
+  log_info "自定义 code-server 模式启用：跳过 code-server 远程镜像拉取，使用本地 build context"
+  docker compose -f docker-compose.yml -f docker-compose.release.yml -f docker-compose.custom-code-server.yml pull nuxt-app git-runner
+  docker compose -f docker-compose.yml -f docker-compose.release.yml -f docker-compose.custom-code-server.yml up -d --no-build nuxt-app git-runner
+  docker compose -f docker-compose.yml -f docker-compose.release.yml -f docker-compose.custom-code-server.yml up -d --build code-server
+else
+  log_info "拉取最新镜像..."
+  docker compose -f docker-compose.yml -f docker-compose.release.yml pull
 
-log_info "启动服务..."
-docker compose -f docker-compose.yml -f docker-compose.release.yml up -d --no-build
+  log_info "启动服务..."
+  docker compose -f docker-compose.yml -f docker-compose.release.yml up -d --no-build
+fi
 
 log_info "部署完成！"
 log_info "Web 界面地址: http://<your-host>:3000"

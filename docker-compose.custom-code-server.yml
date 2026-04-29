@@ -1,0 +1,3 @@
+services:
+  code-server:
+    pull_policy: build
