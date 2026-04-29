@@ -275,7 +275,7 @@ watch(totalPages, (pages) => {
       >
         <div class="run-card-header">
           <div class="run-title-row">
-            <NuxtLink :to="`/tasks/${run.id}`" class="run-link">
+            <NuxtLink :to="{ name: 'tasks-id', params: { id: run.id } }" class="run-link">
               {{ run.task_title || run.task_path }}
             </NuxtLink>
             <span
