@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { TaskCreateInput } from '#shared/types/task-creator'
 import type { AiRunRecord, AiTaskSummary } from '~/types'
+import TaskCreatorDialog from '~/components/repo-detail/TaskCreatorDialog.vue'
 
 const props = defineProps<{
   tasks: AiTaskSummary[]
@@ -202,7 +203,7 @@ function formatMs(ms: number) {
         <div v-if="getLatestTaskRun(task.path)" class="task-meta">
           Last run:
           <NuxtLink
-            :to="`/tasks/${getLatestTaskRun(task.path)!.id}`"
+            :to="{ name: 'tasks-id', params: { id: getLatestTaskRun(task.path)!.id } }"
             class="run-link"
           >
             {{ getLatestTaskRun(task.path)!.status }}

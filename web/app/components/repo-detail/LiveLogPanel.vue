@@ -72,7 +72,7 @@ function getRunMessage(run: AiRunRecord | null) {
       </div>
       <div v-else>
         <div class="log-summary">
-          <div>
+          <div class="summary-main">
             <div class="summary-label">
               Latest
             </div>
@@ -80,16 +80,20 @@ function getRunMessage(run: AiRunRecord | null) {
               {{ panelMessage }}
             </div>
           </div>
-          <div class="summary-counts">
-            <span>executor {{ summary.executorEventCount }}</span>
-            <span>acceptance {{ summary.acceptanceEventCount }}</span>
+          <div class="summary-side">
+            <div class="summary-counts">
+              <span>executor {{ summary.executorEventCount }}</span>
+              <span>acceptance {{ summary.acceptanceEventCount }}</span>
+            </div>
+            <NuxtLink
+              v-if="lastRun"
+              :to="{ name: 'tasks-id', params: { id: lastRun.id } }"
+              class="run-detail-link"
+            >
+              <span class="i-carbon-arrow-right" />
+              Open details
+            </NuxtLink>
           </div>
-        </div>
-        <div v-if="lastRun" class="run-detail-link-row">
-          <NuxtLink :to="`/tasks/${lastRun.id}`" class="run-detail-link">
-            <span class="i-carbon-arrow-right" />
-            Open run details
-          </NuxtLink>
         </div>
         <div v-if="events.length" class="log-entries">
           <div
@@ -218,6 +222,10 @@ function getRunMessage(run: AiRunRecord | null) {
   border-bottom: 1px solid var(--border-color);
 }
 
+.summary-main {
+  min-width: 0;
+}
+
 .summary-label {
   font-size: var(--font-size-xs);
   color: var(--text-muted);
@@ -227,6 +235,17 @@ function getRunMessage(run: AiRunRecord | null) {
 .summary-message {
   font-size: var(--font-size-sm);
   color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.summary-side {
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  gap: var(--space-2);
+  align-items: flex-end;
 }
 
 .summary-counts {
@@ -237,12 +256,6 @@ function getRunMessage(run: AiRunRecord | null) {
   font-size: var(--font-size-xs);
   color: var(--text-secondary);
   white-space: nowrap;
-}
-
-.run-detail-link-row {
-  padding: var(--space-2) var(--space-4);
-  border-bottom: 1px solid var(--border-color);
-  background-color: var(--bg-surface);
 }
 
 .run-detail-link {
@@ -256,6 +269,20 @@ function getRunMessage(run: AiRunRecord | null) {
 
 .run-detail-link:hover {
   text-decoration: underline;
+}
+
+@media (max-width: 760px) {
+  .log-summary {
+    flex-direction: column;
+  }
+
+  .summary-side {
+    align-items: flex-start;
+  }
+
+  .summary-message {
+    white-space: normal;
+  }
 }
 
 .log-entry {
