@@ -118,7 +118,8 @@ services:
   # code-server 在线编辑器
   code-server:
     image: ${GIT_NEST_CODE_SERVER_IMAGE:-git-nest-code-server:local}
-    build: ./code-server
+    build:
+      context: ${CODE_SERVER_BUILD_CONTEXT:-./code-server}
     container_name: git-nest-editor
     restart: unless-stopped
     environment:

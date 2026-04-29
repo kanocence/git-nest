@@ -1,3 +1,4 @@
+import type { TaskCreateInput } from '#shared/types/task-creator'
 import type { AiRunListResponse, AiTaskListResponse, AiWorkspaceState } from '~/types'
 
 /**
@@ -8,10 +9,18 @@ export function useAiRepoTasks(repoName: MaybeRef<string>, selectedBranch?: Mayb
   const branch = toRef(selectedBranch)
 
   // Tasks
+  const tasksUrl = computed(() => {
+    const query = new URLSearchParams()
+    if (branch.value)
+      query.set('ref', branch.value)
+    const suffix = query.toString()
+    return `/api/repos/${name.value}/ai/tasks${suffix ? `?${suffix}` : ''}`
+  })
+
   const { data: aiTasks, refresh: refreshAiTasks } = useFetch<AiTaskListResponse>(
-    () => `/api/repos/${name.value}/ai/tasks?ref=${encodeURIComponent(branch.value || '')}`,
+    () => tasksUrl.value,
     {
-      key: () => `ai-tasks-${name.value}-${branch.value || ''}`,
+      key: () => `ai-tasks-${name.value}-${branch.value || 'default'}`,
       default: () => ({ repo: name.value, ref: branch.value || '', tasks: [], total: 0 }),
       immediate: false,
     },
@@ -98,6 +107,9 @@ export function useAiRepoTasks(repoName: MaybeRef<string>, selectedBranch?: Mayb
   const uploading = ref(false)
   const uploadSuccess = ref('')
   const uploadError = ref('')
+  const showCreateTaskDialog = ref(false)
+  const creatingTask = ref(false)
+  const createTaskError = ref('')
 
   async function handleTaskUpload(file: File) {
     uploading.value = true
@@ -118,6 +130,28 @@ export function useAiRepoTasks(repoName: MaybeRef<string>, selectedBranch?: Mayb
     }
     finally {
       uploading.value = false
+    }
+  }
+
+  async function handleCreateTask(payload: TaskCreateInput) {
+    creatingTask.value = true
+    createTaskError.value = ''
+    uploadError.value = ''
+    uploadSuccess.value = ''
+    try {
+      const response = await $fetch<{ filePath: string }>(`/api/repos/${name.value}/ai/tasks/create`, {
+        method: 'POST',
+        body: { ...payload, ref: branch.value || undefined },
+      })
+      uploadSuccess.value = `Created ${response.filePath}`
+      showCreateTaskDialog.value = false
+      await refreshAiTasks()
+    }
+    catch (error: any) {
+      createTaskError.value = error?.data?.error || error?.statusMessage || 'Create task failed'
+    }
+    finally {
+      creatingTask.value = false
     }
   }
 
@@ -169,7 +203,11 @@ export function useAiRepoTasks(repoName: MaybeRef<string>, selectedBranch?: Mayb
     uploading: readonly(uploading),
     uploadSuccess: readonly(uploadSuccess),
     uploadError: readonly(uploadError),
+    showCreateTaskDialog,
+    creatingTask: readonly(creatingTask),
+    createTaskError: readonly(createTaskError),
     handleTaskUpload,
+    handleCreateTask,
     // Delete
     taskToDelete,
     showDeleteTaskConfirm,

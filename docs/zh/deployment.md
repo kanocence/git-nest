@@ -158,6 +158,52 @@ docker compose up -d --build
 docker compose ps
 ```
 
+### 2.1 自定义 code-server 轨道（高级）
+
+默认部署使用官方 code-server 镜像，源码部署使用仓库内置 `./code-server` 构建上下文。高级用户如果需要自定义 Dockerfile、预装扩展或安装内部工具，可以显式启用自定义轨道：
+
+```bash
+sh scripts/init-host.sh --custom-code-server
+```
+
+脚本会提示风险，确认后创建用户目录（默认 `~/.git-nest/code-server`），并生成 `docker-compose.custom-code-server.yml`。该目录不会在升级时被自动覆盖，后续升级需要用户自行对比并合并官方模板变化。
+
+release 部署启用后使用：
+
+```bash
+docker compose \
+  -f docker-compose.yml \
+  -f docker-compose.release.yml \
+  -f docker-compose.custom-code-server.yml \
+  up -d --build code-server
+```
+
+一键部署也可以直接传入：
+
+```bash
+sh scripts/deploy.sh --custom-code-server
+```
+
+启用后 `.env` 会写入：
+
+```env
+CODE_SERVER_CUSTOM_DIR=~/.git-nest/code-server
+CODE_SERVER_BUILD_CONTEXT=/home/user/.git-nest/code-server
+GIT_NEST_CODE_SERVER_IMAGE=git-nest-code-server:custom
+```
+
+修改 `~/.git-nest/code-server/Dockerfile` 或 `install-dev-tools.sh` 后，重新构建 code-server：
+
+```bash
+docker compose \
+  -f docker-compose.yml \
+  -f docker-compose.release.yml \
+  -f docker-compose.custom-code-server.yml \
+  up -d --build code-server
+```
+
+升级 Git Nest 后，如需同步官方模板变化，请人工对比新的 `code-server/Dockerfile` 和 `install-dev-tools.sh`，再合并到自己的 `~/.git-nest/code-server`。脚本默认不会覆盖用户修改。
+
 ## 3. 健康检查与日志
 
 ### 3.1 Web

@@ -3,7 +3,7 @@ import type { RepoLock, WorkspaceInfo, WorkspaceSnapshot } from '#shared/types/a
 import type { AgentRuntimeConfig } from './config'
 import { execFileSync } from 'node:child_process'
 import crypto from 'node:crypto'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
@@ -116,15 +116,24 @@ export function getDefaultRef(config: AgentRuntimeConfig, repo: string): string 
   return 'HEAD'
 }
 
+function validateReadableRef(ref: string): string {
+  const normalized = ref.trim()
+  if (!normalized) {
+    throw new AgentError(400, 'INVALID_REF', 'A readable ref is required')
+  }
+  return normalized
+}
+
 export function listTaskFiles(config: AgentRuntimeConfig, repo: string, ref: string): string[] {
   const barePath = ensureRepoExists(config, repo)
+  const safeRef = validateReadableRef(ref)
   const output = runGit([
     '--git-dir',
     barePath,
     'ls-tree',
     '-r',
     '--name-only',
-    ref,
+    safeRef,
     '--',
     '.git-nest/tasks',
   ], { timeoutMs: config.gitTimeoutMs })
@@ -140,11 +149,12 @@ export function listTaskFiles(config: AgentRuntimeConfig, repo: string, ref: str
 
 export function readTaskFile(config: AgentRuntimeConfig, repo: string, ref: string, filePath: string): string {
   const barePath = ensureRepoExists(config, repo)
+  const safeRef = validateReadableRef(ref)
   return runGit([
     '--git-dir',
     barePath,
     'show',
-    `${ref}:${filePath}`,
+    `${safeRef}:${filePath}`,
   ], { timeoutMs: config.gitTimeoutMs })
 }
 
@@ -323,6 +333,89 @@ export function getRunWorkspacePath(config: AgentRuntimeConfig, repo: string, ru
   return path.join(config.workspaceDir, repo, 'runs', runId)
 }
 
+const CLEANUP_GIT_BRANCHES_SCRIPT = `#!/usr/bin/env bash
+set -euo pipefail
+
+REMOTE="\${1:-origin}"
+
+# 确保在 git 仓库中
+git rev-parse --is-inside-work-tree >/dev/null 2>&1 || {
+  echo "当前目录不是 Git 仓库"
+  exit 1
+}
+
+# 检查工作区是否干净，避免切分支失败
+if ! git diff --quiet || ! git diff --cached --quiet; then
+  echo "工作区或暂存区有未提交修改，请先提交或 stash"
+  exit 1
+fi
+
+echo "Fetching and pruning $REMOTE..."
+git fetch "$REMOTE" --prune
+
+latest_branch="$(
+  git for-each-ref \\
+    --sort=-committerdate \\
+    --format='%(refname:short)' \\
+    refs/heads \\
+  | head -n 1
+)"
+
+if [ -z "$latest_branch" ]; then
+  echo "没有找到本地分支"
+  exit 1
+fi
+
+echo "Switching to latest local branch: $latest_branch"
+git switch "$latest_branch"
+
+echo "Checking local branches whose upstream is gone..."
+
+gone_branches="$(
+  git for-each-ref \\
+    --format='%(refname:short) %(upstream:track)' \\
+    refs/heads \\
+  | awk '$2 == "[gone]" {print $1}'
+)"
+
+if [ -z "$gone_branches" ]; then
+  echo "没有需要删除的本地分支"
+  exit 0
+fi
+
+echo "将删除以下本地分支："
+echo "$gone_branches"
+
+echo
+echo "Deleting branches safely with git branch -d..."
+
+while IFS= read -r branch; do
+  [ -z "$branch" ] && continue
+
+  if [ "$branch" = "$(git branch --show-current)" ]; then
+    echo "跳过当前分支：$branch"
+    continue
+  fi
+
+  git branch -d "$branch" || {
+    echo "未删除 $branch：可能存在未合并提交。确认不要时可手动执行：git branch -D $branch"
+  }
+done <<< "$gone_branches"
+
+echo "Done."
+`
+
+export function ensureCleanupGitBranchesScript(workspaceDir: string): string {
+  const gitNestDir = path.join(workspaceDir, '.git-nest')
+  const scriptPath = path.join(gitNestDir, 'cleanup-git-branches.sh')
+  if (!existsSync(scriptPath)) {
+    mkdirSync(gitNestDir, { recursive: true })
+    writeFileSync(scriptPath, CLEANUP_GIT_BRANCHES_SCRIPT, { encoding: 'utf8', mode: 0o755 })
+  }
+  chmodSync(scriptPath, 0o755)
+  return scriptPath
+}
+
 function resolveWorktreeBaseRef(config: AgentRuntimeConfig, barePath: string, baseBranch: string): string {
   const candidates = [`origin/${baseBranch}`, baseBranch]
   for (const candidate of candidates) {
@@ -357,6 +450,8 @@ export function ensureRunWorkspace(config: AgentRuntimeConfig, repo: string, run
   if (!existsSync(gitDir)) {
     throw new AgentError(409, 'WORKSPACE_INVALID', 'Run workspace exists but is not a git repository')
   }
+
+  ensureCleanupGitBranchesScript(workspaceDir)
 
   // Configure origin remote for push if not exists (only for new worktree)
   if (isNewWorktree) {

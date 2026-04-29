@@ -54,8 +54,9 @@ export interface RunRepository {
   }) => typeof run
   updateStatus: (id: string, status: RunStatus, lastError?: string | null) => RunRecord | null
   get: (id: string) => RunRecord | null
-  list: (limit?: number) => RunRecord[]
+  list: (options?: number | { limit?: number, offset?: number, status?: RunStatus | null, repo?: string | null }) => { runs: RunRecord[], total: number }
   listByStatus: (status: RunStatus) => RunRecord[]
+  delete: (id: string) => boolean
 }
 
 export interface EventRepository {
@@ -155,15 +156,34 @@ export function createRunRepository(_db: DatabaseSync, s: DbStatements): RunRepo
     return (s.getRun.get(id) as unknown as RunRecord | undefined) || null
   }
 
-  function list(limit = 50): RunRecord[] {
-    return s.listRuns.all(limit) as unknown as RunRecord[]
+  function list(options: number | { limit?: number, offset?: number, status?: RunStatus | null, repo?: string | null } = 50) {
+    if (typeof options === 'number') {
+      const runs = s.listRuns.all(options) as unknown as RunRecord[]
+      return { runs, total: runs.length }
+    }
+
+    const limit = Math.min(Math.max(options.limit || 20, 1), 100)
+    const offset = Math.max(options.offset || 0, 0)
+    const status = options.status || null
+    const repo = options.repo || null
+    const runs = s.listRunsPaged.all(status, status, repo, repo, limit, offset) as unknown as RunRecord[]
+    const count = s.countRuns.get(status, status, repo, repo) as unknown as { total: number }
+    return { runs, total: count.total }
   }
 
   function listByStatus(status: RunStatus): RunRecord[] {
     return s.listRunsByStatus.all(status) as unknown as RunRecord[]
   }
 
-  return { create, updateStatus, get, list, listByStatus }
+  function deleteRun(id: string) {
+    const result = s.deleteRun.run(id) as unknown as { changes: number }
+    if (result.changes <= 0)
+      return false
+    s.deleteRunEvents.run(id)
+    return true
+  }
+
+  return { create, updateStatus, get, list, listByStatus, delete: deleteRun }
 }
 
 export function createEventRepository(_db: DatabaseSync, s: DbStatements): EventRepository {

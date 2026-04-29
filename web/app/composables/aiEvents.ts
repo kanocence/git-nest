@@ -1,66 +1,12 @@
+import type { UiEvent } from '#shared/utils/ai-events'
 import type { AiRunEvent } from '~/types'
-
-export interface UiEvent {
-  key: string
-  type: string
-  message: string
-  nodeId?: string
-  role?: string
-  payload: any
-  createdAt: string
-  isLive: boolean
-}
+import { toUiEvent } from '#shared/utils/ai-events'
 
 export interface ExecutorBudget {
   maxTurns: number | null
   timeoutMs: number | null
   continuationsUsed: number | null
   maxContinuations: number | null
-}
-
-function toUiEvent(raw: any, isLive = false): UiEvent {
-  const type = raw.type || 'unknown'
-  let message = raw.message
-  if (!message) {
-    if (type === 'run.executor_log')
-      message = raw.log || '[executor log]'
-    else if (type === 'run.queued')
-      message = 'Run queued'
-    else if (type === 'run.started')
-      message = 'Run started'
-    else if (type === 'run.completed')
-      message = 'Run completed'
-    else if (type === 'run.failed')
-      message = `Run failed: ${raw.error || ''}`
-    else if (type === 'run.acceptance_started')
-      message = 'Acceptance started'
-    else if (type === 'run.released')
-      message = 'Run released'
-    else if (type === 'connected')
-      message = 'Connected to event stream'
-    else if (type === 'run.waiting_approval')
-      message = 'Run waiting for approval'
-    else if (type === 'run.waiting_continuation')
-      message = 'Run waiting for continuation'
-    else message = JSON.stringify(raw.payload ?? raw)
-  }
-  const runId = raw.run_id || raw.runId || ''
-  const nodeId = raw.node_id || raw.nodeId || ''
-  const role = raw.role || ''
-  const createdAt = raw.created_at || new Date().toISOString()
-  const key = raw.id
-    ? String(raw.id)
-    : `${runId}-${type}-${message}-${nodeId}-${role}`
-  return {
-    key,
-    type,
-    message,
-    nodeId: nodeId || undefined,
-    role: role || undefined,
-    payload: raw.payload ?? null,
-    createdAt,
-    isLive,
-  }
 }
 
 /**

@@ -8,9 +8,12 @@ import {
   DialogTitle,
 } from 'reka-ui'
 
-defineProps<{
+withDefaults(defineProps<{
   title: string
-}>()
+  size?: 'default' | 'wide'
+}>(), {
+  size: 'default',
+})
 
 const visible = defineModel<boolean>({ default: false })
 </script>
@@ -19,7 +22,7 @@ const visible = defineModel<boolean>({ default: false })
   <DialogRoot v-model:open="visible">
     <DialogPortal>
       <DialogOverlay class="modal-overlay" />
-      <DialogContent class="modal-content">
+      <DialogContent class="modal-content" :class="{ 'modal-content--wide': size === 'wide' }">
         <DialogTitle class="modal-title">
           {{ title }}
         </DialogTitle>
@@ -59,10 +62,15 @@ const visible = defineModel<boolean>({ default: false })
   border-radius: var(--border-radius-lg);
   box-shadow: var(--shadow-xl);
   padding: var(--space-6);
-  width: 100%;
+  width: calc(100vw - 2rem);
   max-width: 28rem;
-  margin: 0 var(--space-4);
+  max-height: calc(100vh - 2rem);
+  overflow: auto;
   animation: contentShow 150ms ease;
+}
+
+.modal-content--wide {
+  max-width: 64rem;
 }
 
 .modal-title {
