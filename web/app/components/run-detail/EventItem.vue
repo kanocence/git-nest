@@ -1,14 +1,5 @@
 <script setup lang="ts">
-interface UiEvent {
-  key: string
-  type: string
-  message: string
-  nodeId?: string
-  role?: string
-  payload: any
-  createdAt: string
-  isLive: boolean
-}
+import type { UiEvent } from '#shared/utils/ai-events'
 
 defineProps<{
   event: UiEvent

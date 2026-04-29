@@ -371,17 +371,29 @@ Continue from the current workspace state. Inspect existing changes first, do no
         model: config.hermesModel,
       }
 
+      const executorStartedAt = Date.now()
+      const heartbeatTimer = setInterval(() => {
+        recordEvent(run, {
+          type: 'run.executor_heartbeat',
+          message: `Executor still running (${Math.max(1, Math.floor((Date.now() - executorStartedAt) / 1000))}s)`,
+          payload: { elapsedMs: Date.now() - executorStartedAt },
+        })
+      }, 10000)
+
       // Execute with HermesRunner
       const finalResult = await hermesRunner.run(
         runParams,
         abortController.signal,
-        (chunk: string) => {
+        (chunk: string, stream: 'stdout' | 'stderr') => {
           recordEvent(run, {
             type: 'run.executor_progress',
             message: chunk,
+            payload: { stream },
           })
         },
-      )
+      ).finally(() => {
+        clearInterval(heartbeatTimer)
+      })
 
       recordEvent(run, {
         type: 'run.executor_completed',

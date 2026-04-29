@@ -19,7 +19,7 @@ export default defineAgentHandler(async (event) => {
 
   return {
     run,
-    events: agent.db.events.listByRun(id, 200),
+    events: agent.db.events.listByRun(id, 5000),
     workspace: getWorkspaceInfo(agent.config, run.repo, agent.db.locks.get(run.repo)),
   }
 })

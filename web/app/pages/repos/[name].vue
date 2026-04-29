@@ -80,6 +80,7 @@ const {
   refreshAiRuns,
   aiActionError,
   aiStartingTaskPath,
+  lastStartedRun,
   pendingStartTaskPath,
   showRestartConfirm,
   promptStartAiTask,
@@ -294,6 +295,7 @@ async function handleDelete() {
     <LiveLogPanel
       :events="liveEvents"
       :is-live="!!aiWorkspace?.occupiedByAi"
+      :last-run="lastStartedRun || repoRuns[0] || null"
     />
 
     <CommitLogSection

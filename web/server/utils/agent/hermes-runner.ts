@@ -31,7 +31,7 @@ export interface HermesRunner {
   run: (
     params: HermesRunParams,
     abortSignal: AbortSignal,
-    onOutput: (chunk: string) => void,
+    onOutput: (chunk: string, stream: 'stdout' | 'stderr') => void,
   ) => Promise<HermesRunResult>
 }
 
@@ -39,7 +39,7 @@ export function createHermesRunner(config: AgentRuntimeConfig): HermesRunner {
   return {
     name: 'hermes',
 
-    async run(params: HermesRunParams, abortSignal: AbortSignal, onOutput: (chunk: string) => void): Promise<HermesRunResult> {
+    async run(params: HermesRunParams, abortSignal: AbortSignal, onOutput: (chunk: string, stream: 'stdout' | 'stderr') => void): Promise<HermesRunResult> {
       const runDir = path.posix.join(config.stateDir, 'runs', params.runId)
       mkdirSync(runDir, { recursive: true })
       const promptPath = path.posix.join(runDir, 'prompt.md')
@@ -109,7 +109,6 @@ export function createHermesRunner(config: AgentRuntimeConfig): HermesRunner {
       // Hermes CLI parameters
       args.push(config.hermesImage)
       args.push('chat')
-      args.push('--quiet')
       args.push('--yolo')
       args.push('--source', 'tool')
       args.push('--toolsets', params.toolsets || config.hermesToolsets)
@@ -147,13 +146,13 @@ export function createHermesRunner(config: AgentRuntimeConfig): HermesRunner {
       child.stdout.on('data', (data: Buffer) => {
         const chunk = data.toString('utf8')
         logChunk(chunk)
-        onOutput(chunk)
+        onOutput(chunk, 'stdout')
       })
 
       child.stderr.on('data', (data: Buffer) => {
         const chunk = data.toString('utf8')
         logChunk(chunk)
-        onOutput(chunk)
+        onOutput(chunk, 'stderr')
       })
 
       async function sendDockerKill(containerName: string, signal: NodeJS.Signals = 'SIGTERM'): Promise<'killed' | 'missing' | 'failed'> {

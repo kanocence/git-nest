@@ -1,5 +1,5 @@
 import type { TaskCreateInput } from '#shared/types/task-creator'
-import type { AiRunListResponse, AiTaskListResponse, AiWorkspaceState } from '~/types'
+import type { AiRunListResponse, AiRunRecord, AiTaskListResponse, AiWorkspaceState } from '~/types'
 
 /**
  * AI 任务列表与操作
@@ -60,8 +60,12 @@ export function useAiRepoTasks(repoName: MaybeRef<string>, selectedBranch?: Mayb
   // Task start
   const aiActionError = ref('')
   const aiStartingTaskPath = ref<string | null>(null)
+  const lastStartedRun = ref<AiRunRecord | null>(null)
   const pendingStartTaskPath = ref<string | null>(null)
   const showRestartConfirm = ref(false)
+  const uploading = ref(false)
+  const uploadSuccess = ref('')
+  const uploadError = ref('')
 
   function promptStartAiTask(taskPath: string) {
     const hasHistory = repoRuns.value.filter(r => r.task_path === taskPath).some(r => r.status !== 'cancelled')
@@ -80,19 +84,20 @@ export function useAiRepoTasks(repoName: MaybeRef<string>, selectedBranch?: Mayb
     handleStartAiTask(taskPath)
   }
 
-  const router = useRouter()
-
   async function handleStartAiTask(taskPath: string) {
     aiActionError.value = ''
     aiStartingTaskPath.value = taskPath
+    lastStartedRun.value = null
     try {
-      const response = await $fetch<{ run: { id: string } }>(`/api/repos/${name.value}/ai/tasks/start`, {
+      const response = await $fetch<{ run: AiRunRecord }>(`/api/repos/${name.value}/ai/tasks/start`, {
         method: 'POST',
         body: { taskPath, ref: branch.value || undefined },
       })
+      lastStartedRun.value = response.run
+      uploadSuccess.value = `Started ${response.run.task_title || response.run.task_path}`
       await refreshAiWorkspace()
       await refreshAiTasks()
-      await router.push(`/tasks/${response.run.id}`)
+      await refreshAiRuns()
     }
     catch (error: any) {
       aiActionError.value = error?.data?.error || error?.statusMessage || 'Failed to start AI task.'
@@ -104,9 +109,6 @@ export function useAiRepoTasks(repoName: MaybeRef<string>, selectedBranch?: Mayb
   }
 
   // Task upload
-  const uploading = ref(false)
-  const uploadSuccess = ref('')
-  const uploadError = ref('')
   const showCreateTaskDialog = ref(false)
   const creatingTask = ref(false)
   const createTaskError = ref('')
@@ -195,6 +197,7 @@ export function useAiRepoTasks(repoName: MaybeRef<string>, selectedBranch?: Mayb
     // Start
     aiActionError: readonly(aiActionError),
     aiStartingTaskPath: readonly(aiStartingTaskPath),
+    lastStartedRun: readonly(lastStartedRun),
     pendingStartTaskPath,
     showRestartConfirm,
     promptStartAiTask,

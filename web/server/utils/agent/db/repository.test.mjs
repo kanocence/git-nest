@@ -56,12 +56,16 @@ test('runs list supports limit offset status repo and total', () => {
 test('delete removes terminal runs and rejects active runs', () => {
   const db = new DatabaseSync(':memory:')
   initSchema(db)
-  const runs = createRunRepository(db, createStatements(db))
+  const statements = createStatements(db)
+  const runs = createRunRepository(db, statements)
+  const events = createEventRepository(db, statements)
   createRun(runs, 'run-1', 'completed', 'demo')
   createRun(runs, 'run-2', 'running', 'demo')
+  events.append({ runId: 'run-1', type: 'run.executor_progress', message: 'persisted log' })
 
   assert.equal(runs.delete('run-1'), true)
   assert.equal(runs.get('run-1'), null)
+  assert.deepEqual(events.listByRun('run-1'), [])
   assert.equal(runs.delete('run-2'), false)
   assert.notEqual(runs.get('run-2'), null)
 })
