@@ -85,7 +85,11 @@ const {
   uploading,
   uploadSuccess,
   uploadError,
+  showCreateTaskDialog,
+  creatingTask,
+  createTaskError,
   handleTaskUpload,
+  handleCreateTask,
   taskToDelete,
   showDeleteTaskConfirm,
   confirmDeleteTask,
@@ -291,13 +295,20 @@ async function handleDelete() {
       :repo-runs="repoRuns"
       :workspace="aiWorkspace || null"
       :can-start="canStartAiTask"
+      :branches="branchData?.branches?.map(b => b.name) || []"
+      :selected-branch="selectedBranch"
       :uploading="uploading"
       :upload-success="uploadSuccess"
       :upload-error="uploadError"
       :ai-action-error="aiActionError"
+      :show-create-task-dialog="showCreateTaskDialog"
+      :creating-task="creatingTask"
+      :create-task-error="createTaskError"
       :ai-starting-task-path="aiStartingTaskPath"
       @upload="handleTaskUpload"
+      @update:show-create-task-dialog="showCreateTaskDialog = $event"
       @start-task="promptStartAiTask"
+      @create-task="handleCreateTask"
       @delete-task="confirmDeleteTask"
     />
 

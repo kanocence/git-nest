@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import type { TaskCreateInput } from '#shared/types/task-creator'
 import type { AiRunRecord, AiTaskSummary } from '~/types'
 
 const props = defineProps<{
@@ -11,17 +12,24 @@ const props = defineProps<{
     currentBranch?: string | null
   } | null
   canStart: boolean
+  branches: string[]
+  selectedBranch?: string
   uploading: boolean
   uploadSuccess: string
   uploadError: string
+  showCreateTaskDialog: boolean
+  creatingTask: boolean
+  createTaskError: string
   aiActionError: string
   aiStartingTaskPath: string | null
 }>()
 
 const emit = defineEmits<{
-  upload: [file: File]
-  startTask: [taskPath: string]
-  deleteTask: [taskPath: string]
+  'createTask': [payload: TaskCreateInput]
+  'deleteTask': [taskPath: string]
+  'startTask': [taskPath: string]
+  'upload': [file: File]
+  'update:showCreateTaskDialog': [visible: boolean]
 }>()
 
 const taskFileInput = ref<HTMLInputElement | null>(null)
@@ -72,6 +80,11 @@ function formatMs(ms: number) {
         </span>
         <span v-else class="status-badge">Idle</span>
         <ActionButton
+          label="Create Task"
+          icon="i-carbon-add"
+          @click="emit('update:showCreateTaskDialog', true)"
+        />
+        <ActionButton
           label="Upload Task"
           icon="i-carbon-upload"
           variant="secondary"
@@ -88,6 +101,16 @@ function formatMs(ms: number) {
       class="file-input-hidden"
       @change="onFileSelected"
     >
+
+    <TaskCreatorDialog
+      :model-value="showCreateTaskDialog"
+      :branches="branches"
+      :selected-branch="selectedBranch"
+      :creating="creatingTask"
+      :error="createTaskError"
+      @update:model-value="emit('update:showCreateTaskDialog', $event)"
+      @create="emit('createTask', $event)"
+    />
 
     <div v-if="uploadSuccess" class="alert alert--success">
       {{ uploadSuccess }}
