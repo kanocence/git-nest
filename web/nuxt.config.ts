@@ -35,6 +35,7 @@ export default defineNuxtConfig({
 
   css: [
     '~/assets/styles/variables.css',
+    '~/assets/styles/utilities.css',
   ],
 
   colorMode: {

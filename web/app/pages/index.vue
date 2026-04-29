@@ -57,13 +57,13 @@ async function onRepoCreated() {
 <template>
   <div class="repo-list-page">
     <!-- Header -->
-    <div class="page-header">
+    <div class="gn-page-header">
       <div>
-        <h1 class="page-title">
-          <span class="i-carbon-repository page-icon" />
+        <h1 class="gn-page-title">
+          <span class="i-carbon-repository gn-page-icon" />
           Repositories
         </h1>
-        <p class="page-subtitle">
+        <p class="gn-page-subtitle">
           {{ repos.length }} repositories
         </p>
       </div>
@@ -88,7 +88,7 @@ async function onRepoCreated() {
     </div>
 
     <!-- Error State -->
-    <div v-if="error" class="alert alert--error">
+    <div v-if="error" class="gn-alert gn-alert--error">
       <div class="alert-content">
         <span class="i-carbon-warning" />
         <span>Failed to load repositories. Is git-runner running?</span>
@@ -99,7 +99,7 @@ async function onRepoCreated() {
     </div>
 
     <!-- Loading State -->
-    <div v-else-if="loading" class="loading-state">
+    <div v-else-if="loading" class="gn-loading-state">
       <span>Loading repositories...</span>
     </div>
 
@@ -149,10 +149,10 @@ async function onRepoCreated() {
     <!-- Delete Confirmation Dialog -->
     <ModalDialog v-model="showDeleteConfirm" title="Delete Repository">
       <p>Are you sure you want to delete <strong>{{ repoToDelete }}</strong>?</p>
-      <p class="warning-text">
+      <p class="gn-warning-text">
         This action cannot be undone. The bare repository and all its data will be permanently removed.
       </p>
-      <p v-if="deleteError" class="error-text">
+      <p v-if="deleteError" class="gn-error-text">
         {{ deleteError }}
       </p>
       <template #actions>
@@ -174,30 +174,9 @@ async function onRepoCreated() {
   margin: 0 auto;
 }
 
-.page-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
+/* page-header 默认 margin-bottom: space-6，此页需缩小 */
+.gn-page-header {
   margin-bottom: var(--space-4);
-}
-
-.page-title {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  font-size: var(--font-size-xl);
-  font-weight: var(--font-weight-bold);
-  color: var(--text-primary);
-}
-
-.page-icon {
-  color: var(--color-primary);
-}
-
-.page-subtitle {
-  font-size: var(--font-size-sm);
-  color: var(--text-secondary);
-  margin-top: var(--space-1);
 }
 
 .search-box {
@@ -240,18 +219,7 @@ async function onRepoCreated() {
   color: var(--text-muted);
 }
 
-.alert {
-  padding: var(--space-4);
-  border-radius: var(--border-radius-lg);
-  font-size: var(--font-size-sm);
-  margin-bottom: var(--space-4);
-}
-
-.alert--error {
-  color: var(--color-danger);
-  background-color: var(--color-danger-light);
-}
-
+/* alert-content / retry-btn 是此页的扩展结构 */
 .alert-content {
   display: flex;
   gap: var(--space-2);
@@ -266,14 +234,6 @@ async function onRepoCreated() {
   border: none;
   cursor: pointer;
   color: inherit;
-}
-
-.loading-state {
-  text-align: center;
-  padding: var(--space-16) 0;
-  color: var(--text-muted);
-  font-size: var(--font-size-lg);
-  animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
 }
 
 .empty-state {
@@ -343,27 +303,5 @@ async function onRepoCreated() {
   font-size: 2rem;
   display: block;
   margin: 0 auto var(--space-2);
-}
-
-.warning-text {
-  font-size: var(--font-size-sm);
-  color: var(--color-danger);
-  margin-top: var(--space-2);
-}
-
-.error-text {
-  font-size: var(--font-size-sm);
-  color: var(--color-danger);
-  margin-top: var(--space-2);
-}
-
-@keyframes pulse {
-  0%,
-  100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.5;
-  }
 }
 </style>

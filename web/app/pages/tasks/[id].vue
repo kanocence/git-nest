@@ -58,20 +58,20 @@ watch(isConnected, (connected) => {
       @refresh="refresh()"
     />
 
-    <div v-if="error" class="alert alert--error">
+    <div v-if="error" class="gn-alert gn-alert--error">
       Failed to load AI run details.
     </div>
 
-    <div v-else-if="loading && !run" class="loading-state">
+    <div v-else-if="loading && !run" class="gn-loading-state">
       Loading AI run...
     </div>
 
     <template v-else-if="run">
       <!-- Action feedback -->
-      <div v-if="actionError" class="alert alert--error">
+      <div v-if="actionError" class="gn-alert gn-alert--error">
         {{ actionError }}
       </div>
-      <div v-if="actionSuccess" class="alert alert--success">
+      <div v-if="actionSuccess" class="gn-alert gn-alert--success">
         {{ actionSuccess }}
       </div>
 
@@ -91,7 +91,7 @@ watch(isConnected, (connected) => {
       <RunInfoPanel :run="run" :executor-budget="executorBudget" />
 
       <!-- Last Error -->
-      <div v-if="run.last_error" class="alert alert--error">
+      <div v-if="run.last_error" class="gn-alert gn-alert--error">
         {{ run.last_error }}
       </div>
 
@@ -106,7 +106,7 @@ watch(isConnected, (connected) => {
         <p>
           Are you sure you want to delete branch <strong>{{ run.task_branch }}</strong>?
         </p>
-        <p class="warning-text">
+        <p class="gn-warning-text">
           This action cannot be undone.
         </p>
         <template #actions>
@@ -127,35 +127,5 @@ watch(isConnected, (connected) => {
 .run-detail {
   max-width: 64rem;
   margin: 0 auto;
-}
-
-.alert {
-  padding: var(--space-3) var(--space-4);
-  border-radius: var(--border-radius-lg);
-  font-size: var(--font-size-sm);
-  margin-bottom: var(--space-4);
-}
-
-.alert--error {
-  color: var(--color-danger);
-  background-color: var(--color-danger-light);
-}
-
-.alert--success {
-  color: var(--color-success);
-  background-color: var(--color-success-light);
-}
-
-.loading-state {
-  text-align: center;
-  padding: var(--space-16) 0;
-  color: var(--text-muted);
-  font-size: var(--font-size-lg);
-}
-
-.warning-text {
-  font-size: var(--font-size-sm);
-  color: var(--color-danger);
-  margin-top: var(--space-2);
 }
 </style>
