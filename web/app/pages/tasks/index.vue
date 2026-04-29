@@ -96,53 +96,6 @@ watch(sseData, (newData) => {
   }
 })
 
-function formatDate(date: string) {
-  return new Date(date).toLocaleString('zh-CN', {
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-  })
-}
-
-function formatDuration(createdAt: string, updatedAt: string, status?: string) {
-  const end = status && ACTIVE_STATUSES.has(status) ? now.value : new Date(updatedAt)
-  const diff = end.getTime() - new Date(createdAt).getTime()
-  if (diff < 0)
-    return ''
-  const minutes = Math.floor(diff / 60000)
-  const hours = Math.floor(minutes / 60)
-  const days = Math.floor(hours / 24)
-  if (days > 0)
-    return `${days}d ${hours % 24}h ${minutes % 60}m`
-  if (hours > 0)
-    return `${hours}h ${minutes % 60}m`
-  if (minutes > 0)
-    return `${minutes}m`
-  return `${Math.floor(diff / 1000)}s`
-}
-
-function getStatusClass(status: string) {
-  switch (status) {
-    case 'completed':
-      return 'status--success'
-    case 'failed':
-    case 'system_interrupted':
-      return 'status--danger'
-    case 'running':
-    case 'queued':
-    case 'preparing':
-      return 'status--info'
-    case 'waiting_approval':
-    case 'waiting_continuation':
-      return 'status--warning'
-    case 'cancelled':
-    default:
-      return 'status--default'
-  }
-}
-
 function isActiveRun(status: string) {
   return ACTIVE_STATUSES.has(status)
 }
@@ -210,13 +163,13 @@ watch(totalPages, (pages) => {
 
 <template>
   <div class="tasks-page">
-    <div class="page-header">
+    <div class="gn-page-header">
       <div>
-        <h1 class="page-title">
-          <span class="i-carbon-machine-learning-model page-icon" />
+        <h1 class="gn-page-title">
+          <span class="i-carbon-machine-learning-model gn-page-icon" />
           AI Tasks
         </h1>
-        <p class="page-subtitle">
+        <p class="gn-page-subtitle">
           Shared workspace runs and preparation status
         </p>
       </div>
@@ -254,11 +207,11 @@ watch(totalPages, (pages) => {
       </button>
     </div>
 
-    <div v-if="error" class="alert alert--error">
+    <div v-if="error" class="gn-alert gn-alert--error">
       Failed to load AI runs.
     </div>
 
-    <div v-else-if="loading" class="loading-state">
+    <div v-else-if="loading" class="gn-loading-state">
       <span>Loading AI runs...</span>
     </div>
 
@@ -278,12 +231,7 @@ watch(totalPages, (pages) => {
             <NuxtLink :to="{ name: 'tasks-id', params: { id: run.id } }" class="run-link">
               {{ run.task_title || run.task_path }}
             </NuxtLink>
-            <span
-              class="status-badge"
-              :class="getStatusClass(run.status)"
-            >
-              {{ run.status }}
-            </span>
+            <StatusBadge :status="run.status" />
           </div>
           <button
             v-if="canDeleteRun(run.status)"
@@ -305,7 +253,7 @@ watch(totalPages, (pages) => {
           Branch: <code>{{ run.task_branch }}</code>
         </div>
         <div class="run-meta">
-          Duration: {{ formatDuration(run.created_at, run.updated_at, run.status) }}
+          Duration: {{ formatDuration(run.created_at, run.updated_at, isActiveRun(run.status) ? now : undefined) }}
         </div>
         <div class="run-time">
           Created {{ formatDate(run.created_at) }} · Updated {{ formatDate(run.updated_at) }}
@@ -357,10 +305,10 @@ watch(totalPages, (pages) => {
         Are you sure you want to delete
         <strong>{{ selectedRunToDelete?.task_title || selectedRunToDelete?.task_path || runToDelete }}</strong>?
       </p>
-      <p class="warning-text">
+      <p class="gn-warning-text">
         This removes the run record and its saved workspace metadata. Active runs cannot be deleted.
       </p>
-      <div v-if="deleteRunError" class="error-text">
+      <div v-if="deleteRunError" class="gn-error-text">
         {{ deleteRunError }}
       </div>
       <template #actions>
@@ -380,32 +328,6 @@ watch(totalPages, (pages) => {
 .tasks-page {
   max-width: 56rem;
   margin: 0 auto;
-}
-
-.page-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: var(--space-6);
-}
-
-.page-title {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  font-size: var(--font-size-xl);
-  font-weight: var(--font-weight-bold);
-  color: var(--text-primary);
-}
-
-.page-icon {
-  color: var(--color-primary);
-}
-
-.page-subtitle {
-  font-size: var(--font-size-sm);
-  color: var(--text-secondary);
-  margin-top: var(--space-1);
 }
 
 .filters {
@@ -434,26 +356,6 @@ watch(totalPages, (pages) => {
   border: none;
   cursor: pointer;
   text-decoration: underline;
-}
-
-.alert {
-  padding: var(--space-4);
-  border-radius: var(--border-radius-lg);
-  font-size: var(--font-size-sm);
-  margin-bottom: var(--space-4);
-}
-
-.alert--error {
-  color: var(--color-danger);
-  background-color: var(--color-danger-light);
-}
-
-.loading-state {
-  text-align: center;
-  padding: var(--space-16) 0;
-  color: var(--text-muted);
-  font-size: var(--font-size-lg);
-  animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
 }
 
 .empty-state {
@@ -545,38 +447,6 @@ watch(totalPages, (pages) => {
 .run-delete-btn:hover {
   background-color: var(--color-danger-light);
   border-color: var(--color-danger-border-subtle);
-}
-
-.status-badge {
-  font-size: var(--font-size-xs);
-  padding: var(--space-1) var(--space-2);
-  border-radius: 9999px;
-  white-space: nowrap;
-}
-
-.status--success {
-  color: var(--color-success);
-  background-color: var(--color-success-light);
-}
-
-.status--danger {
-  color: var(--color-danger);
-  background-color: var(--color-danger-light);
-}
-
-.status--info {
-  color: var(--color-info);
-  background-color: var(--color-info-light);
-}
-
-.status--warning {
-  color: var(--color-warning);
-  background-color: var(--color-warning-light);
-}
-
-.status--default {
-  color: var(--text-secondary);
-  background-color: var(--bg-elevated);
 }
 
 .run-meta {
@@ -699,18 +569,6 @@ watch(totalPages, (pages) => {
   color: var(--text-primary);
 }
 
-.warning-text {
-  font-size: var(--font-size-sm);
-  color: var(--color-danger);
-  margin-top: var(--space-2);
-}
-
-.error-text {
-  font-size: var(--font-size-sm);
-  color: var(--color-danger);
-  margin-top: var(--space-2);
-}
-
 @keyframes activeRunGlow {
   0%,
   100% {
@@ -721,19 +579,8 @@ watch(totalPages, (pages) => {
   }
 }
 
-@keyframes pulse {
-  0%,
-  100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.5;
-  }
-}
-
 @media (prefers-reduced-motion: reduce) {
-  .run-card--active,
-  .loading-state {
+  .run-card--active {
     animation: none;
   }
 }

@@ -31,9 +31,7 @@ watch(() => props.events.length, () => {
         <div class="summary-label">
           Status
         </div>
-        <div class="summary-status" :class="`summary-status--${summary.tone}`">
-          {{ summary.status }}
-        </div>
+        <StatusBadge :status="summary.status" :tone="summary.tone" />
       </div>
       <div class="summary-latest">
         <div class="summary-label">
@@ -98,35 +96,6 @@ watch(() => props.events.length, () => {
   font-size: var(--font-size-xs);
   color: var(--text-muted);
   margin-bottom: var(--space-1);
-}
-
-.summary-status {
-  display: inline-flex;
-  padding: var(--space-1) var(--space-2);
-  border-radius: 9999px;
-  font-size: var(--font-size-xs);
-  color: var(--text-secondary);
-  background-color: var(--bg-surface);
-}
-
-.summary-status--success {
-  color: var(--color-success);
-  background-color: var(--color-success-light);
-}
-
-.summary-status--info {
-  color: var(--color-info);
-  background-color: var(--color-info-light);
-}
-
-.summary-status--warning {
-  color: var(--color-warning);
-  background-color: var(--color-warning-light);
-}
-
-.summary-status--danger {
-  color: var(--color-danger);
-  background-color: var(--color-danger-light);
 }
 
 .summary-latest {

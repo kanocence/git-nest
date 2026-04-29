@@ -31,9 +31,7 @@ watch(() => output.value.length, () => {
       </div>
       <div class="output-meta">
         <span>{{ summary.executorEventCount }} executor events</span>
-        <span class="status-badge" :class="`status-badge--${summary.tone}`">
-          {{ summary.status }}
-        </span>
+        <StatusBadge :status="summary.status" :tone="summary.tone" />
       </div>
     </div>
 
@@ -79,46 +77,20 @@ watch(() => output.value.length, () => {
   color: var(--text-primary);
 }
 
-.live-badge,
-.status-badge {
+.live-badge {
   padding: var(--space-1) var(--space-2);
   border-radius: 9999px;
   font-size: var(--font-size-xs);
-}
-
-.live-badge {
   color: var(--color-success);
   background-color: var(--color-success-light);
 }
 
 .output-meta {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
   font-size: var(--font-size-xs);
   color: var(--text-secondary);
-}
-
-.status-badge {
-  color: var(--text-secondary);
-  background-color: var(--bg-elevated);
-}
-
-.status-badge--success {
-  color: var(--color-success);
-  background-color: var(--color-success-light);
-}
-
-.status-badge--info {
-  color: var(--color-info);
-  background-color: var(--color-info-light);
-}
-
-.status-badge--warning {
-  color: var(--color-warning);
-  background-color: var(--color-warning-light);
-}
-
-.status-badge--danger {
-  color: var(--color-danger);
-  background-color: var(--color-danger-light);
 }
 
 .output-body {

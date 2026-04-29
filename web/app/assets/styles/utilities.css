@@ -1,0 +1,82 @@
+/* ─── Page header layout ──────────────────────────────────── */
+.gn-page-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--space-6);
+}
+
+.gn-page-title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--font-size-xl);
+  font-weight: var(--font-weight-bold);
+  color: var(--text-primary);
+}
+
+.gn-page-icon {
+  color: var(--color-primary);
+}
+
+.gn-page-subtitle {
+  font-size: var(--font-size-sm);
+  color: var(--text-secondary);
+  margin-top: var(--space-1);
+}
+
+/* ─── Alert boxes ─────────────────────────────────────────── */
+.gn-alert {
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--border-radius-lg);
+  font-size: var(--font-size-sm);
+  margin-bottom: var(--space-4);
+}
+
+.gn-alert--error {
+  color: var(--color-danger);
+  background-color: var(--color-danger-light);
+}
+
+.gn-alert--success {
+  color: var(--color-success);
+  background-color: var(--color-success-light);
+}
+
+/* ─── Inline text helpers ─────────────────────────────────── */
+.gn-warning-text {
+  font-size: var(--font-size-sm);
+  color: var(--color-danger);
+  margin-top: var(--space-2);
+}
+
+.gn-error-text {
+  font-size: var(--font-size-sm);
+  color: var(--color-danger);
+  margin-top: var(--space-2);
+}
+
+/* ─── Loading state ───────────────────────────────────────── */
+.gn-loading-state {
+  text-align: center;
+  padding: var(--space-16) 0;
+  color: var(--text-muted);
+  font-size: var(--font-size-lg);
+  animation: gn-pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+@keyframes gn-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .gn-loading-state {
+    animation: none;
+  }
+}

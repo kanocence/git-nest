@@ -4,17 +4,6 @@ import type { UiEvent } from '#shared/utils/ai-events'
 defineProps<{
   event: UiEvent
 }>()
-
-function formatDate(date: string) {
-  return new Date(date).toLocaleString('zh-CN', {
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-  })
-}
 </script>
 
 <template>
@@ -24,7 +13,7 @@ function formatDate(date: string) {
         {{ event.message }}
       </div>
       <div class="event-time">
-        {{ formatDate(event.createdAt) }}
+        {{ formatDateTime(event.createdAt) }}
       </div>
     </div>
     <div class="event-meta">
