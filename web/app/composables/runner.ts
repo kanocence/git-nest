@@ -5,9 +5,6 @@ export function useRunner() {
   const loading = ref(false)
   const error = ref<string | null>(null)
 
-  /**
-   * 创建仓库
-   */
   async function createRepo(name: string) {
     loading.value = true
     error.value = null
