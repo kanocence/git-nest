@@ -85,6 +85,27 @@ func listRepos(dataDir string) ([]RepoInfo, error) {
 	return repos, nil
 }
 
+// remoteURLRe 白名单：允许 ssh://, git://, https://, http:// 以及 SCP 格式 user@host:path。
+// 明确拒绝含 .. 、shell 特殊字符的 URL，防止命令注入。
+var remoteURLRe = regexp.MustCompile(
+	`^(https?://|git://|ssh://)[^\s'";&|<>` + "`" + `\\]+$|` +
+		`^[a-zA-Z0-9_.\-]+@[a-zA-Z0-9_.\-]+:[a-zA-Z0-9/_.\-]+$`,
+)
+
+// validateRemoteURL 校验远程 URL，防止命令注入。
+func validateRemoteURL(url string) error {
+	if url == "" {
+		return fmt.Errorf("remote URL is required")
+	}
+	if strings.Contains(url, "..") {
+		return fmt.Errorf("remote URL must not contain '..'")
+	}
+	if !remoteURLRe.MatchString(url) {
+		return fmt.Errorf("remote URL format not supported (use https://, git://, ssh://, or SCP git@host:path)")
+	}
+	return nil
+}
+
 // createBareRepo 创建一个新的 bare 仓库。
 func createBareRepo(ctx context.Context, dataDir, name string, timeout time.Duration) error {
 	fullPath := repoPath(dataDir, name)
@@ -102,6 +123,39 @@ func createBareRepo(ctx context.Context, dataDir, name string, timeout time.Dura
 	}
 
 	return nil
+}
+
+// cloneBareFromRemoteSSE 从远程 URL 克隆 bare 仓库，并通过 SSE 输出 git 进度。
+func cloneBareFromRemoteSSE(ctx context.Context, sse *sseWriter, cfg *Config, name, remoteURL string) int {
+	fullPath := repoPath(cfg.DataDir, name)
+
+	if _, err := os.Stat(fullPath); err == nil {
+		sse.sendError("repository already exists", -1)
+		return -1
+	}
+
+	cloneTimeout := cfg.CommandTimeout * 10
+	if cloneTimeout < 5*time.Minute {
+		cloneTimeout = 5 * time.Minute
+	}
+
+	sse.sendProgress(fmt.Sprintf("Importing %s → %s", remoteURL, fullPath))
+	exitCode := streamCommandWithTimeout(ctx, sse, cloneTimeout,
+		"git", "clone", "--bare", "--progress", remoteURL, fullPath,
+	)
+
+	if exitCode != 0 {
+		_ = os.RemoveAll(fullPath)
+		sse.sendDone(exitCode)
+		return exitCode
+	}
+
+	if err := installPostReceiveHook(cfg, name); err != nil {
+		sse.sendProgress(fmt.Sprintf("warning: failed to install post-receive hook: %v", err))
+	}
+
+	sse.sendDone(0)
+	return 0
 }
 
 // deleteBareRepo 删除一个 bare 仓库及其 workspace 克隆目录。

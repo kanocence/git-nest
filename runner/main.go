@@ -56,6 +56,7 @@ func main() {
 	mux.HandleFunc("GET /health", handleHealth(cfg))
 	mux.HandleFunc("GET /api/repos", handleListRepos(cfg))
 	mux.HandleFunc("POST /api/repos", handleCreateRepo(cfg))
+	mux.HandleFunc("POST /api/repos/import", handleImportRepo(cfg))
 	mux.HandleFunc("GET /api/repos/{name}/log", handleRepoLog(cfg))
 	mux.HandleFunc("DELETE /api/repos/{name}", handleDeleteRepo(cfg))
 	mux.HandleFunc("POST /api/repos/{name}/clone", handleCloneRepo(cfg))

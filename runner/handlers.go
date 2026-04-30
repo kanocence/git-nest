@@ -107,7 +107,9 @@ func handleListRepos(cfg *Config) http.HandlerFunc {
 	}
 }
 
-// handleCreateRepo 创建新的 bare 仓库。
+// handleCreateRepo 创建新的空 bare 仓库。
+// Body: { "name": "..." }
+// 从远程 URL 导入仓库统一走 /api/repos/import，以便通过 SSE 返回 git clone 进度。
 func handleCreateRepo(cfg *Config) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		r.Body = http.MaxBytesReader(w, r.Body, 1<<20) // 1MB limit
@@ -138,7 +140,6 @@ func handleCreateRepo(cfg *Config) http.HandlerFunc {
 			writeError(w, http.StatusInternalServerError, "COMMAND_FAILED", err.Error())
 			return
 		}
-
 		slog.Info("repo created", "name", body.Name)
 
 		// 自动安装 post-receive hook
@@ -150,6 +151,42 @@ func handleCreateRepo(cfg *Config) http.HandlerFunc {
 			"name":    body.Name,
 			"message": "repository created",
 		})
+	}
+}
+
+// handleImportRepo 通过 SSE 从远程 URL 导入 bare 仓库。
+func handleImportRepo(cfg *Config) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
+		var body struct {
+			Name      string `json:"name"`
+			RemoteURL string `json:"remoteUrl"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			writeError(w, http.StatusBadRequest, "INVALID_REQUEST", "invalid JSON body")
+			return
+		}
+		if err := validateRepoName(body.Name); err != nil {
+			writeError(w, http.StatusBadRequest, "INVALID_REPO_NAME", err.Error())
+			return
+		}
+		if err := validateRemoteURL(body.RemoteURL); err != nil {
+			writeError(w, http.StatusBadRequest, "INVALID_REMOTE_URL", err.Error())
+			return
+		}
+
+		sse, err := newSSEWriter(w)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "SSE_NOT_SUPPORTED", err.Error())
+			return
+		}
+
+		unlock := repoLock(body.Name)
+		defer unlock()
+
+		slog.Info("repo import started", "name", body.Name, "remote", body.RemoteURL)
+		exitCode := cloneBareFromRemoteSSE(r.Context(), sse, cfg, body.Name, body.RemoteURL)
+		slog.Info("repo import finished", "name", body.Name, "remote", body.RemoteURL, "exitCode", exitCode)
 	}
 }
 

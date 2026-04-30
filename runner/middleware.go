@@ -59,7 +59,7 @@ func auditMiddleware(audit *AuditLogger, next http.Handler) http.Handler {
 		}
 
 		// SSE 流式端点：不包装 writer（保留 Flusher 接口），仅记录审计
-		if strings.HasSuffix(r.URL.Path, "/clone") || strings.HasSuffix(r.URL.Path, "/pull") {
+		if strings.HasSuffix(r.URL.Path, "/clone") || strings.HasSuffix(r.URL.Path, "/pull") || r.URL.Path == "/api/repos/import" {
 			next.ServeHTTP(w, r)
 			repo := r.PathValue("name")
 			action := mapAction(r.Method, r.URL.Path)
@@ -87,6 +87,8 @@ func mapAction(method, path string) string {
 	switch {
 	case method == "POST" && path == "/api/repos":
 		return "repo.create"
+	case method == "POST" && path == "/api/repos/import":
+		return "repo.import"
 	case method == "DELETE" && strings.HasPrefix(path, "/api/repos/"):
 		if strings.HasSuffix(path, "/hooks") {
 			return "hook.uninstall"
