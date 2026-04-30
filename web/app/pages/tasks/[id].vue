@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { shouldRefreshAiState } from '#shared/utils/ai-events'
 import CodeServerBanner from '~/components/run-detail/CodeServerBanner.vue'
 import EventList from '~/components/run-detail/EventList.vue'
 import HermesOutputPanel from '~/components/run-detail/HermesOutputPanel.vue'
@@ -46,6 +47,13 @@ watch(isConnected, (connected) => {
   if (!connected)
     refresh()
 })
+
+// Auto-refresh run data when a terminal event arrives via SSE
+watch(liveEvents, (events) => {
+  const last = events[events.length - 1]
+  if (last && shouldRefreshAiState(last.type))
+    refresh()
+}, { deep: false })
 </script>
 
 <template>
