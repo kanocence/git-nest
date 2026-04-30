@@ -48,6 +48,11 @@ watch([() => props.tasks.length, pageSize], () => {
     currentPage.value = totalPages.value
 })
 
+const pageSizeStr = computed({
+  get: () => String(pageSize.value),
+  set: (v: string) => { pageSize.value = Number(v) },
+})
+
 watch(() => props.showCreateTaskDialog, (visible) => {
   if (visible)
     createDialogVisible.value = true
@@ -92,7 +97,7 @@ function formatMs(ms: number) {
   <div class="task-section">
     <div class="task-header">
       <h2 class="section-title">
-        <span class="i-carbon-machine-learning-model" />
+        <Icon name="i-carbon-machine-learning-model" />
         AI Tasks
       </h2>
       <div class="task-status">
@@ -247,7 +252,7 @@ function formatMs(ms: number) {
             :disabled="currentPage <= 1"
             @click="currentPage--"
           >
-            <span class="i-carbon-chevron-left" />
+            <Icon name="i-carbon-chevron-left" />
           </button>
           <span class="pagination-info">
             {{ currentPage }} / {{ totalPages }}
@@ -258,16 +263,16 @@ function formatMs(ms: number) {
             :disabled="currentPage >= totalPages"
             @click="currentPage++"
           >
-            <span class="i-carbon-chevron-right" />
+            <Icon name="i-carbon-chevron-right" />
           </button>
         </div>
         <div class="pagination-size">
           <span>{{ tasks.length }} task YAML</span>
-          <select v-model="pageSize" class="page-size-select">
-            <option v-for="size in pageSizeOptions" :key="size" :value="size">
-              {{ size }} / page
-            </option>
-          </select>
+          <BranchSelector
+            v-model="pageSizeStr"
+            icon=""
+            :options="pageSizeOptions.map(s => ({ value: String(s), label: `${s} / page` }))"
+          />
         </div>
       </div>
     </div>
@@ -505,15 +510,6 @@ function formatMs(ms: number) {
 .pagination-size {
   font-size: var(--font-size-sm);
   color: var(--text-secondary);
-}
-
-.page-size-select {
-  padding: var(--space-1) var(--space-2);
-  font-size: var(--font-size-sm);
-  color: var(--text-primary);
-  background-color: var(--bg-surface);
-  border: 1px solid var(--border-color);
-  border-radius: var(--border-radius-sm);
 }
 
 .task-empty {

@@ -37,19 +37,22 @@ function formatTime(date: Date): string {
     <!-- Header -->
     <div class="px-3 py-2 border-b border-gray-200 bg-gray-100 flex items-center justify-between dark:border-gray-700 dark:bg-gray-800">
       <div class="text-sm flex gap-2 items-center">
-        <span
+        <Icon
           v-if="operation.status === 'running'"
-          class="i-carbon-renew text-teal-500 animate-spin"
+          name="i-carbon-renew"
+          class="text-teal-500 animate-spin"
         />
-        <span
+        <Icon
           v-else-if="operation.status === 'success'"
-          class="i-carbon-checkmark-filled text-green-500"
+          name="i-carbon-checkmark-filled"
+          class="text-green-500"
         />
-        <span
+        <Icon
           v-else
-          class="i-carbon-close-filled text-red-500"
+          name="i-carbon-close-filled"
+          class="text-red-500"
         />
-        <span class="font-500">{{ operation.type === 'clone' ? 'Clone' : 'Pull' }}</span>
+        <span class="font-medium">{{ operation.type === 'import' ? 'Import' : operation.type === 'clone' ? 'Clone' : 'Pull' }}</span>
         <span class="text-gray-400">{{ operation.repo }}</span>
       </div>
       <span class="text-xs text-gray-400">

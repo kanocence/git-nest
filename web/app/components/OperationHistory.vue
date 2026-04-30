@@ -18,8 +18,8 @@ function formatTime(date: Date): string {
 
 <template>
   <div v-if="operations.length > 0" class="space-y-2">
-    <h3 class="text-sm text-gray-500 font-600 flex gap-1 items-center">
-      <span class="i-carbon-recently-viewed" />
+    <h3 class="text-sm text-gray-500 font-semibold flex gap-1 items-center">
+      <Icon name="i-carbon-recently-viewed" />
       Operation History
     </h3>
 
@@ -28,17 +28,20 @@ function formatTime(date: Date): string {
       :key="op.id"
       class="text-sm p-2 rounded-md bg-gray-50 flex gap-2 items-center dark:bg-gray-800/50"
     >
-      <span
+      <Icon
         v-if="op.status === 'running'"
-        class="i-carbon-renew text-teal-500 shrink-0 animate-spin"
+        name="i-carbon-renew"
+        class="text-teal-500 shrink-0 animate-spin"
       />
-      <span
+      <Icon
         v-else-if="op.status === 'success'"
-        class="i-carbon-checkmark text-green-500 shrink-0"
+        name="i-carbon-checkmark"
+        class="text-green-500 shrink-0"
       />
-      <span
+      <Icon
         v-else
-        class="i-carbon-close text-red-500 shrink-0"
+        name="i-carbon-close"
+        class="text-red-500 shrink-0"
       />
 
       <span class="text-xs font-mono px-1.5 py-0.5 rounded bg-gray-200 dark:bg-gray-700">

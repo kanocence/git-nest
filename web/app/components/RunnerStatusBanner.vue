@@ -14,10 +14,10 @@ const { healthy, diskWarning, diskUsedPct } = useRunnerHealth()
     >
       <div
         v-if="!healthy"
-        class="text-sm text-white px-4 py-2 text-center bg-amber-500 dark:bg-amber-600"
+        class="flex items-center justify-center gap-2 text-sm text-white px-4 py-2 bg-amber-500 dark:bg-amber-600"
       >
-        <span class="i-carbon-warning-alt mr-1 align-text-bottom" />
-        Git Runner is unreachable — repository operations are temporarily unavailable.
+        <Icon name="i-carbon-warning-alt" class="shrink-0 text-base" />
+        <span>Git Runner is unreachable — repository operations are temporarily unavailable.</span>
       </div>
     </Transition>
 
@@ -31,10 +31,10 @@ const { healthy, diskWarning, diskUsedPct } = useRunnerHealth()
     >
       <div
         v-if="healthy && diskWarning"
-        class="text-sm text-white px-4 py-2 text-center bg-orange-500 dark:bg-orange-600"
+        class="flex items-center justify-center gap-2 text-sm text-white px-4 py-2 bg-orange-500 dark:bg-orange-600"
       >
-        <span class="i-carbon-data-volume mr-1 align-text-bottom" />
-        Disk usage at {{ diskUsedPct.toFixed(1) }}% — consider freeing space.
+        <Icon name="i-carbon-data-volume" class="shrink-0 text-base" />
+        <span>Disk usage at {{ diskUsedPct.toFixed(1) }}% — consider freeing space.</span>
       </div>
     </Transition>
   </div>

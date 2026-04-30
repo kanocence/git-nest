@@ -313,16 +313,37 @@ function submit() {
 .text-input,
 .text-area {
   width: 100%;
-  padding: var(--space-2) var(--space-3);
+  padding: 0 var(--space-3);
   font-size: var(--font-size-sm);
   color: var(--text-primary);
   background-color: var(--bg-surface);
   border: 1px solid var(--border-color);
   border-radius: var(--border-radius-md);
+  outline: none;
+  transition:
+    border-color var(--transition-fast),
+    box-shadow var(--transition-fast);
+}
+
+.text-input {
+  height: 2rem;
 }
 
 .text-area {
+  padding-top: var(--space-2);
+  padding-bottom: var(--space-2);
   resize: vertical;
+}
+
+.text-input:focus,
+.text-area:focus {
+  border-color: var(--color-primary);
+  box-shadow: var(--focus-ring);
+}
+
+.text-input::placeholder,
+.text-area::placeholder {
+  color: var(--text-muted);
 }
 
 .mono {

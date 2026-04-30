@@ -16,7 +16,7 @@ const emit = defineEmits<{
   <div class="workspace-section">
     <div class="workspace-header">
       <h2 class="section-title">
-        <span class="i-carbon-terminal" />
+        <Icon name="i-carbon-terminal" />
         Workspace
       </h2>
       <span
@@ -58,7 +58,7 @@ const emit = defineEmits<{
         rel="noopener noreferrer"
         class="editor-link"
       >
-        <span class="i-carbon-code" />
+        <Icon name="i-carbon-code" />
         Open in Editor
       </a>
     </div>

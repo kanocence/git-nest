@@ -28,8 +28,8 @@ const variantClass = computed(() => {
     :disabled="disabled || loading"
     @click="$emit('click')"
   >
-    <span v-if="loading" class="i-carbon-renew icon-spin" />
-    <span v-else-if="icon" :class="icon" class="btn-icon" />
+    <Icon v-if="loading" name="i-carbon-renew" class="icon-spin" />
+    <Icon v-else-if="icon" :name="icon" class="btn-icon" />
     <span>{{ label }}</span>
   </button>
 </template>
@@ -38,8 +38,12 @@ const variantClass = computed(() => {
 .btn {
   display: inline-flex;
   align-items: center;
+  flex-shrink: 0;
   gap: var(--space-1);
-  padding: var(--space-2) var(--space-3);
+  padding: 0 var(--space-3);
+  height: 2rem;
+  line-height: 1;
+  white-space: nowrap;
   font-size: var(--font-size-sm);
   font-weight: var(--font-weight-medium);
   border-radius: var(--border-radius-md);

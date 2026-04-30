@@ -5,7 +5,7 @@
       target="_blank"
       class="inline-flex gap-1 transition-colors items-center hover:text-teal-600"
     >
-      <span class="i-carbon-logo-github" />
+      <Icon name="i-carbon-logo-github" />
       Git Nest
     </a>
   </footer>

@@ -31,7 +31,7 @@ async function handleLogout() {
     <!-- Top bar -->
     <header class="px-4 py-3 border-b border-gray-200 flex items-center justify-between sm:px-6 dark:border-gray-800">
       <div class="flex gap-6 items-center">
-        <NuxtLink to="/" class="text-lg font-600 flex gap-2 transition-colors items-center hover:text-teal-600">
+        <NuxtLink to="/" class="text-lg font-semibold flex gap-2 transition-colors items-center hover:text-teal-600">
           🪺 Git Nest
         </NuxtLink>
         <nav class="text-sm flex gap-3 items-center">
@@ -50,7 +50,7 @@ async function handleLogout() {
           title="Sign out"
           @click="handleLogout"
         >
-          <span class="i-carbon-logout text-lg" />
+          <Icon name="i-carbon-logout" class="text-lg" />
         </button>
         <DarkToggle />
       </div>

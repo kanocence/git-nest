@@ -31,7 +31,7 @@ function formatDate(dateStr: string): string {
     </div>
 
     <div v-else-if="commits.length === 0" class="text-gray-400 py-8 text-center">
-      <div class="i-carbon-empty-state text-3xl mx-auto mb-2" />
+      <Icon name="i-carbon-empty-state" class="text-3xl mx-auto mb-2 block" />
       <p>No commits yet</p>
     </div>
 

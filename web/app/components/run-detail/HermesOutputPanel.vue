@@ -24,7 +24,7 @@ watch(() => output.value.length, () => {
     <div class="output-header">
       <div class="output-title-group">
         <h2 class="output-title">
-          <span class="i-carbon-terminal" />
+          <Icon name="i-carbon-terminal" />
           Hermes Output
         </h2>
         <span v-if="isLive" class="live-badge">Live</span>

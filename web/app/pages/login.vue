@@ -60,7 +60,7 @@ async function handleLogin() {
 
         <!-- Error -->
         <div v-if="error" class="alert alert--error">
-          <span class="i-carbon-warning" />
+          <Icon name="i-carbon-warning" />
           {{ error }}
         </div>
 
@@ -69,7 +69,7 @@ async function handleLogin() {
           :disabled="loading || !password"
           class="submit-btn"
         >
-          <span v-if="loading" class="i-carbon-circle-dash icon-spin" />
+          <Icon v-if="loading" name="i-carbon-circle-dash" class="icon-spin" />
           <span>{{ loading ? 'Signing in...' : 'Sign in' }}</span>
         </button>
       </form>
@@ -131,7 +131,8 @@ async function handleLogin() {
 
 .form-input {
   width: 100%;
-  padding: var(--space-2) var(--space-3);
+  height: 2rem;
+  padding: 0 var(--space-3);
   font-size: var(--font-size-sm);
   color: var(--text-primary);
   background-color: var(--bg-surface);

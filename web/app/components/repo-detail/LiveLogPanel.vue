@@ -53,7 +53,7 @@ function getRunMessage(run: AiRunRecord | null) {
   <div v-if="hasPanelContent" class="log-panel">
     <button class="log-toggle" @click="show = !show">
       <div class="log-toggle-content">
-        <span class="i-carbon-terminal" />
+        <Icon name="i-carbon-terminal" />
         <span class="log-toggle-title">Live Logs</span>
         <span v-if="isLive" class="live-indicator">● Live</span>
         <span class="summary-badge" :class="`summary-badge--${panelTone}`">
@@ -62,7 +62,7 @@ function getRunMessage(run: AiRunRecord | null) {
       </div>
       <div class="log-toggle-meta">
         <span class="event-total">{{ summary.total }} events</span>
-        <span :class="show ? 'i-carbon-chevron-up' : 'i-carbon-chevron-down'" />
+        <Icon :name="show ? 'i-carbon-chevron-up' : 'i-carbon-chevron-down'" />
       </div>
     </button>
 
@@ -90,7 +90,7 @@ function getRunMessage(run: AiRunRecord | null) {
               :to="{ name: 'tasks-id', params: { id: lastRun.id } }"
               class="run-detail-link"
             >
-              <span class="i-carbon-arrow-right" />
+              <Icon name="i-carbon-arrow-right" />
               Open details
             </NuxtLink>
           </div>

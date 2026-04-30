@@ -8,7 +8,6 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   'update:selectedBranch': [branch: string]
-  'deleteBranch': [branch: string]
 }>()
 
 const copied = ref(false)
@@ -28,12 +27,12 @@ async function copyUrl() {
 <template>
   <div class="repo-header">
     <NuxtLink to="/" class="back-link">
-      <span class="i-carbon-arrow-left" />
+      <Icon name="i-carbon-arrow-left" />
       Repositories
     </NuxtLink>
 
     <h1 class="repo-title">
-      <span class="i-carbon-repository repo-icon" />
+      <Icon name="i-carbon-repo-source-code" class="repo-icon" />
       {{ name }}
     </h1>
 
@@ -46,15 +45,6 @@ async function copyUrl() {
         :branches="branches"
         @update:model-value="emit('update:selectedBranch', $event)"
       />
-      <button
-        v-if="selectedBranch"
-        class="delete-branch-btn"
-        title="Delete branch"
-        @click="emit('deleteBranch', selectedBranch)"
-      >
-        <span class="i-carbon-trash-can" />
-        Delete branch
-      </button>
     </div>
 
     <div class="ssh-box">
@@ -66,7 +56,7 @@ async function copyUrl() {
           :title="copied ? 'Copied!' : 'Copy'"
           @click="copyUrl"
         >
-          <span :class="copied ? 'i-carbon-checkmark copy-icon--success' : 'i-carbon-copy'" class="copy-icon" />
+          <Icon :name="copied ? 'i-carbon-checkmark' : 'i-carbon-copy'" :class="copied ? 'copy-icon--success' : ''" class="copy-icon" />
         </button>
       </div>
       <div class="ssh-hints">
@@ -127,22 +117,6 @@ async function copyUrl() {
   flex-wrap: wrap;
   gap: var(--space-3);
   align-items: center;
-}
-
-.delete-branch-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-1);
-  font-size: var(--font-size-sm);
-  color: var(--color-danger);
-  background: none;
-  border: none;
-  cursor: pointer;
-  transition: color var(--transition-fast);
-}
-
-.delete-branch-btn:hover {
-  color: var(--color-danger-hover);
 }
 
 .ssh-box {
