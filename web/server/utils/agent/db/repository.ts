@@ -54,7 +54,7 @@ export interface RunRepository {
   }) => typeof run
   updateStatus: (id: string, status: RunStatus, lastError?: string | null) => RunRecord | null
   get: (id: string) => RunRecord | null
-  list: (options?: number | { limit?: number, offset?: number, status?: RunStatus | null, repo?: string | null }) => { runs: RunRecord[], total: number }
+  list: (options?: number | { limit?: number, offset?: number, status?: RunStatus | null, statuses?: RunStatus[], repo?: string | null }) => { runs: RunRecord[], total: number }
   listByStatus: (status: RunStatus) => RunRecord[]
   delete: (id: string) => boolean
 }
@@ -156,7 +156,7 @@ export function createRunRepository(_db: DatabaseSync, s: DbStatements): RunRepo
     return (s.getRun.get(id) as unknown as RunRecord | undefined) || null
   }
 
-  function list(options: number | { limit?: number, offset?: number, status?: RunStatus | null, repo?: string | null } = 50) {
+  function list(options: number | { limit?: number, offset?: number, status?: RunStatus | null, statuses?: RunStatus[], repo?: string | null } = 50) {
     if (typeof options === 'number') {
       const runs = s.listRuns.all(options) as unknown as RunRecord[]
       return { runs, total: runs.length }
@@ -164,8 +164,18 @@ export function createRunRepository(_db: DatabaseSync, s: DbStatements): RunRepo
 
     const limit = Math.min(Math.max(options.limit || 20, 1), 100)
     const offset = Math.max(options.offset || 0, 0)
-    const status = options.status || null
     const repo = options.repo || null
+
+    // Multi-status: fetch all matching statuses and merge results
+    const statuses = options.statuses && options.statuses.length > 0 ? options.statuses : null
+    if (statuses && statuses.length > 1) {
+      const statusJson = JSON.stringify(statuses)
+      const runs = s.listRunsByStatusesPaged.all(statusJson, repo, repo, limit, offset) as unknown as RunRecord[]
+      const count = s.countRunsByStatuses.get(statusJson, repo, repo) as unknown as { total: number }
+      return { runs, total: count.total }
+    }
+
+    const status = statuses ? statuses[0]! : (options.status || null)
     const runs = s.listRunsPaged.all(status, status, repo, repo, limit, offset) as unknown as RunRecord[]
     const count = s.countRuns.get(status, status, repo, repo) as unknown as { total: number }
     return { runs, total: count.total }
