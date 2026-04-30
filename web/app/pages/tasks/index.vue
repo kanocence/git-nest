@@ -7,7 +7,7 @@ definePageMeta({
   layout: 'default',
 })
 
-useHead({ title: 'AI Tasks' })
+useHead({ title: 'AI Workbench' })
 
 const statusFilter = ref('')
 const repoFilter = ref('')
@@ -19,6 +19,8 @@ const now = useNow({ interval: 1000 })
 
 const ACTIVE_STATUSES = new Set(['queued', 'preparing', 'running', 'waiting_approval', 'waiting_continuation'])
 const TERMINAL_STATUSES = new Set(['completed', 'failed', 'cancelled', 'system_interrupted'])
+const ATTENTION_STATUSES = 'waiting_approval,waiting_continuation'
+const RUNNING_STATUSES = 'queued,preparing,running'
 
 const statusOptions = [
   '',
@@ -60,6 +62,18 @@ const totalPages = computed(() => Math.max(1, Math.ceil(totalRuns.value / pageSi
 const loading = computed(() => status.value === 'pending')
 const latestRunEvents = ref<Record<string, UiEvent>>({})
 
+// Attention runs + running runs (fetched separately for summary)
+const { data: attentionData, refresh: refreshAttention } = useFetch<AiRunListResponse>(
+  `/api/ai/runs?limit=20&status=${ATTENTION_STATUSES}`,
+  { key: 'tasks-attention', default: () => ({ runs: [], total: 0, limit: 20, offset: 0 }) },
+)
+const { data: runningData, refresh: refreshRunning } = useFetch<AiRunListResponse>(
+  `/api/ai/runs?limit=20&status=${RUNNING_STATUSES}`,
+  { key: 'tasks-running', default: () => ({ runs: [], total: 0, limit: 20, offset: 0 }) },
+)
+const attentionRuns = computed(() => attentionData.value?.runs || [])
+const runningRuns = computed(() => runningData.value?.runs || [])
+
 const { data: sseData } = useEventSource('/api/ai/events')
 
 // 刷新状态锁
@@ -69,7 +83,7 @@ const debouncedRefresh = useDebounceFn(async () => {
     return
   isRefreshing.value = true
   try {
-    await refresh()
+    await Promise.all([refresh(), refreshAttention(), refreshRunning()])
   }
   finally {
     isRefreshing.value = false
@@ -159,6 +173,11 @@ watch(totalPages, (pages) => {
   if (currentPage.value > pages)
     currentPage.value = pages
 })
+
+const pageSizeStr = computed({
+  get: () => String(pageSize.value),
+  set: (v: string) => { pageSize.value = Number(v) },
+})
 </script>
 
 <template>
@@ -166,11 +185,11 @@ watch(totalPages, (pages) => {
     <div class="gn-page-header">
       <div>
         <h1 class="gn-page-title">
-          <span class="i-carbon-machine-learning-model gn-page-icon" />
-          AI Tasks
+          <Icon name="i-carbon-machine-learning-model" class="gn-page-icon" />
+          AI Workbench
         </h1>
         <p class="gn-page-subtitle">
-          Shared workspace runs and preparation status
+          Monitor and track AI agent activity across all repos
         </p>
       </div>
       <ActionButton
@@ -182,11 +201,74 @@ watch(totalPages, (pages) => {
       />
     </div>
 
+    <!-- Stats summary bar -->
+    <div class="stats-bar">
+      <div class="stat-item">
+        <Icon name="i-carbon-play" class="stat-icon stat-icon--running" />
+        <span class="stat-value">{{ runningRuns.length }}</span>
+        <span class="stat-label">Running</span>
+      </div>
+      <div class="stat-sep" />
+      <div class="stat-item" :class="{ 'stat-item--attention': attentionRuns.length > 0 }">
+        <Icon name="i-carbon-warning" class="stat-icon stat-icon--attention" />
+        <span class="stat-value">{{ attentionRuns.length }}</span>
+        <span class="stat-label">Need Attention</span>
+      </div>
+      <div class="stat-sep" />
+      <div class="stat-item">
+        <Icon name="i-carbon-list" class="stat-icon" />
+        <span class="stat-value">{{ totalRuns }}</span>
+        <span class="stat-label">Total</span>
+      </div>
+    </div>
+
+    <!-- Attention section -->
+    <div v-if="attentionRuns.length > 0" class="attention-section">
+      <div class="section-heading">
+        <Icon name="i-carbon-warning" class="section-heading-icon section-heading-icon--warning" />
+        <span>Needs Your Attention</span>
+        <span class="section-count">{{ attentionRuns.length }}</span>
+      </div>
+      <div class="attention-list">
+        <div v-for="run in attentionRuns" :key="run.id" class="attention-card">
+          <div class="run-card-header">
+            <div class="run-title-row">
+              <NuxtLink :to="{ name: 'tasks-id', params: { id: run.id } }" class="run-link">
+                {{ run.task_title || run.task_path }}
+              </NuxtLink>
+              <StatusBadge :status="run.status" />
+            </div>
+          </div>
+          <div class="run-meta">
+            Repo:
+            <NuxtLink :to="`/repos/${run.repo}`" class="repo-link">
+              {{ run.repo }}
+            </NuxtLink>
+            · Branch: <code>{{ run.task_branch }}</code>
+          </div>
+          <div class="run-meta">
+            Duration: {{ formatDuration(run.created_at, run.updated_at, now) }}
+          </div>
+          <div class="run-summary run-summary--attention">
+            <Icon name="i-carbon-cursor-1" />
+            <span>{{ run.status === 'waiting_approval' ? 'Waiting for your approval to proceed.' : 'Ready for continuation — click to review.' }}</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- History heading -->
+    <div class="section-heading section-heading--list">
+      <Icon name="i-carbon-list" class="section-heading-icon" />
+      <span>Run History</span>
+    </div>
+
     <div class="filters">
       <div class="filter-group">
         <label class="filter-label">Status</label>
         <BranchSelector
           v-model="statusFilter"
+          icon="i-carbon-filter"
           :options="[{ value: '', label: 'All' }, ...statusOptions.filter(v => v).map(s => ({ value: s, label: s }))]"
         />
       </div>
@@ -194,6 +276,7 @@ watch(totalPages, (pages) => {
         <label class="filter-label">Repo</label>
         <BranchSelector
           v-model="repoFilter"
+          icon="i-carbon-repo-source-code"
           :options="[{ value: '', label: 'All repos' }, ...repoOptions.filter(v => v).map(r => ({ value: r, label: r }))]"
         />
       </div>
@@ -240,7 +323,7 @@ watch(totalPages, (pages) => {
             type="button"
             @click="runToDelete = run.id"
           >
-            <span class="i-carbon-trash-can" />
+            <Icon name="i-carbon-trash-can" />
           </button>
         </div>
         <div class="run-meta">
@@ -259,7 +342,7 @@ watch(totalPages, (pages) => {
           Created {{ formatDate(run.created_at) }} · Updated {{ formatDate(run.updated_at) }}
         </div>
         <div class="run-summary" :class="{ 'run-summary--live': Boolean(latestRunEvents[run.id]) }">
-          <span class="i-carbon-terminal" />
+          <Icon name="i-carbon-terminal" />
           <span>{{ getRunSummary(run) }}</span>
         </div>
         <div v-if="run.last_error" class="run-error">
@@ -275,7 +358,7 @@ watch(totalPages, (pages) => {
             type="button"
             @click="currentPage--"
           >
-            <span class="i-carbon-chevron-left" />
+            <Icon name="i-carbon-chevron-left" />
           </button>
           <span class="pagination-info">
             {{ currentPage }} / {{ totalPages }}
@@ -286,16 +369,16 @@ watch(totalPages, (pages) => {
             type="button"
             @click="currentPage++"
           >
-            <span class="i-carbon-chevron-right" />
+            <Icon name="i-carbon-chevron-right" />
           </button>
         </div>
         <div class="pagination-size">
           <span class="run-count">{{ totalRuns }} runs</span>
-          <select v-model="pageSize" class="size-select">
-            <option v-for="size in pageSizeOptions" :key="size" :value="size">
-              {{ size }} / page
-            </option>
-          </select>
+          <BranchSelector
+            v-model="pageSizeStr"
+            icon=""
+            :options="pageSizeOptions.map(s => ({ value: String(s), label: `${s} / page` }))"
+          />
         </div>
       </div>
     </div>
@@ -380,9 +463,7 @@ watch(totalPages, (pages) => {
 .run-card--active {
   position: relative;
   overflow: hidden;
-  border-color: color-mix(in srgb, var(--color-info) 35%, var(--border-color));
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-info) 10%, transparent);
-  animation: activeRunGlow 2.4s ease-in-out infinite;
+  border-color: color-mix(in srgb, var(--color-primary) 35%, var(--border-color));
 }
 
 .run-card--active > * {
@@ -390,14 +471,27 @@ watch(totalPages, (pages) => {
   z-index: 1;
 }
 
+/* Animated left stripe — hue-rotate is perfectly seamless (0deg ≡ 360deg) */
 .run-card--active::before {
   content: '';
   position: absolute;
   inset: 0 auto 0 0;
-  width: 0.25rem;
+  width: 3px;
   pointer-events: none;
-  background: var(--color-info);
-  opacity: 0.85;
+  z-index: 2;
+  background: linear-gradient(180deg, #0d9488 0%, #818cf8 50%, #0d9488 100%);
+  animation: activeRunBar 3s linear infinite;
+}
+
+/* Soft ambient glow that follows the bar colour */
+.run-card--active::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  background: linear-gradient(90deg, rgba(13, 148, 136, 0.07) 0%, transparent 40%);
+  animation: activeRunGlow 3s linear infinite;
 }
 
 .run-card-header {
@@ -484,7 +578,7 @@ watch(totalPages, (pages) => {
 .run-summary {
   display: flex;
   gap: var(--space-2);
-  align-items: flex-start;
+  align-items: center;
   margin-top: var(--space-3);
   padding: var(--space-2) var(--space-3);
   border-radius: var(--border-radius-md);
@@ -560,22 +654,16 @@ watch(totalPages, (pages) => {
   color: var(--text-secondary);
 }
 
-.size-select {
-  padding: var(--space-1) var(--space-2);
-  font-size: var(--font-size-sm);
-  border: 1px solid var(--border-color);
-  border-radius: var(--border-radius-sm);
-  background-color: var(--bg-surface);
-  color: var(--text-primary);
+@keyframes activeRunBar {
+  /* hue-rotate(0deg) ≡ hue-rotate(360deg): perfectly seamless cycle */
+  to {
+    filter: hue-rotate(360deg);
+  }
 }
 
 @keyframes activeRunGlow {
-  0%,
-  100% {
-    box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-info) 10%, transparent);
-  }
-  50% {
-    box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-info) 22%, transparent);
+  to {
+    filter: hue-rotate(360deg);
   }
 }
 
@@ -583,5 +671,130 @@ watch(totalPages, (pages) => {
   .run-card--active {
     animation: none;
   }
+
+  .run-card--active::before,
+  .run-card--active::after {
+    animation: none;
+  }
+}
+
+/* Stats bar */
+.stats-bar {
+  display: flex;
+  gap: var(--space-3);
+  align-items: center;
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius-lg);
+  background-color: var(--bg-surface);
+  margin-bottom: var(--space-4);
+}
+
+.stat-sep {
+  width: 1px;
+  height: 1.5rem;
+  background-color: var(--border-color);
+}
+
+.stat-item {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+  flex: 1;
+  justify-content: center;
+}
+
+.stat-item--attention {
+  color: var(--color-warning);
+}
+
+.stat-icon {
+  font-size: 1rem;
+  color: var(--text-muted);
+}
+
+.stat-icon--running {
+  color: var(--color-info);
+}
+
+.stat-icon--attention {
+  color: var(--color-warning);
+}
+
+.stat-value {
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-semibold);
+  color: var(--text-primary);
+}
+
+.stat-item--attention .stat-value {
+  color: var(--color-warning);
+}
+
+.stat-label {
+  font-size: var(--font-size-sm);
+  color: var(--text-secondary);
+}
+
+/* Attention section */
+.attention-section {
+  margin-bottom: var(--space-5);
+}
+
+.section-heading {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+  margin-bottom: var(--space-3);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.section-heading--list {
+  margin-bottom: var(--space-3);
+  margin-top: var(--space-1);
+}
+
+.section-heading-icon {
+  color: var(--text-muted);
+}
+
+.section-heading-icon--warning {
+  color: var(--color-warning);
+}
+
+.section-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.25rem;
+  height: 1.25rem;
+  padding: 0 var(--space-1);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+  border-radius: 9999px;
+  background-color: var(--color-warning-light);
+  color: var(--color-warning);
+}
+
+.attention-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.attention-card {
+  padding: var(--space-4);
+  border: 1px solid color-mix(in srgb, var(--color-warning) 35%, var(--border-color));
+  border-radius: var(--border-radius-lg);
+  background-color: var(--bg-surface);
+}
+
+.run-summary--attention {
+  color: var(--color-warning);
+  background-color: var(--color-warning-light, color-mix(in srgb, var(--color-warning) 8%, transparent));
 }
 </style>
