@@ -20,7 +20,16 @@ export default defineNitroPlugin((nitroApp) => {
     }
   }
 
-  const config = loadAgentConfig()
+  let config
+  try {
+    config = loadAgentConfig()
+  }
+  catch (err: any) {
+    console.warn(`[agent] AgentRuntime disabled — ${err.message}`)
+    console.warn('[agent] The web UI will still work; AI-run APIs will return 503.')
+    return
+  }
+
   const db = createAgentDb(config.dbPath)
   const events = createAgentEventHub()
   const locks = createAgentLocks()
