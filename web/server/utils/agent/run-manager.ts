@@ -3,10 +3,11 @@ import type { AgentRuntimeConfig } from './config'
 import type { AgentDb } from './db'
 import type { AgentEventHub } from './events'
 import type { HermesRunner, HermesRunParams, HermesRunResult } from './hermes-runner'
+import { existsSync } from 'node:fs'
 import { RUN_STATUS } from '#shared/types/agent-status'
 import { validateAcceptanceCommand } from './acceptance'
 import { AgentError } from './errors'
-import { cleanupRunWorkspace, commitAndPushRunWorkspace, getRunWorkspacePath, hasRunWorkspaceChanges, readTaskFile, runRunWorkspaceCommand } from './git'
+import { cleanupRunWorkspace, commitAndPushRunWorkspace, ensureRunWorkspace, getRunWorkspacePath, hasRunWorkspaceChanges, readTaskFile, runRunWorkspaceCommand } from './git'
 import { createHermesRunner } from './hermes-runner'
 import { assertRunCanRetry } from './status'
 import { parseTaskDefinitionV2 } from './tasks'
@@ -17,6 +18,7 @@ export interface RunManager {
   continueRun: (runId: string, decision: 'continue' | 'stop') => Promise<void>
   retryRun: (runId: string) => Promise<void>
   cancelRun: (runId: string) => boolean
+  scheduleNextQueuedRun: (repo: string) => void
   resumeQueuedRuns: () => void
   abortActiveRuns: (reason?: string) => void
   recoverInterruptedRuns: () => void
@@ -301,8 +303,8 @@ Continue from the current workspace state. Inspect existing changes first, do no
     const commitInfo = await commitChanges(run)
 
     run = db.runs.updateStatus(run.id, RUN_STATUS.completed)!
-    db.locks.delete(run.repo)
     db.approvalStates.delete(run.id)
+    releaseRepoLock(run.repo)
 
     try {
       cleanupRunWorkspace(config, run.repo, run.id)
@@ -451,7 +453,7 @@ Continue from the current workspace state. Inspect existing changes first, do no
 
       // Mark as completed
       run = db.runs.updateStatus(runId, RUN_STATUS.completed)!
-      db.locks.delete(run.repo)
+      releaseRepoLock(run.repo)
 
       // Clean up run worktree - changes are committed and pushed
       try {
@@ -479,7 +481,7 @@ Continue from the current workspace state. Inspect existing changes first, do no
 
       if (isCancelled) {
         run = db.runs.updateStatus(runId, RUN_STATUS.cancelled, message)!
-        db.locks.delete(run.repo)
+        releaseRepoLock(run.repo)
         recordEvent(run, {
           type: 'run.cancelled',
           message,
@@ -488,7 +490,7 @@ Continue from the current workspace state. Inspect existing changes first, do no
       }
       else {
         run = db.runs.updateStatus(runId, RUN_STATUS.failed, message)!
-        db.locks.delete(run.repo)
+        releaseRepoLock(run.repo)
         recordEvent(run, {
           type: 'run.failed',
           message,
@@ -530,7 +532,7 @@ Continue from the current workspace state. Inspect existing changes first, do no
     if (!task.valid) {
       const errorMessage = `Task validation failed: ${task.validationErrors.join(', ')}`
       db.runs.updateStatus(runId, RUN_STATUS.failed, errorMessage)
-      db.locks.delete(run.repo)
+      releaseRepoLock(run.repo)
       recordEvent(run, {
         type: 'run.failed',
         message: errorMessage,
@@ -585,7 +587,7 @@ Continue from the current workspace state. Inspect existing changes first, do no
     if (decision === 'rejected') {
       db.approvalStates.delete(runId)
       run = db.runs.updateStatus(runId, RUN_STATUS.failed, 'Rejected by human approval')!
-      db.locks.delete(run.repo)
+      releaseRepoLock(run.repo)
       recordEvent(run, {
         type: 'run.rejected',
         message: 'Run rejected by human approval before acceptance and commit',
@@ -602,7 +604,7 @@ Continue from the current workspace state. Inspect existing changes first, do no
     catch (error: any) {
       const message = error instanceof Error ? error.message : 'Unknown error'
       run = db.runs.updateStatus(runId, RUN_STATUS.failed, message)!
-      db.locks.delete(run.repo)
+      releaseRepoLock(run.repo)
       recordEvent(run, {
         type: 'run.failed',
         message: `Post-approval error: ${message}`,
@@ -637,7 +639,7 @@ Continue from the current workspace state. Inspect existing changes first, do no
       db.approvalStates.delete(runId)
       activeRuns.get(runId)?.abortController.abort()
       run = db.runs.updateStatus(runId, RUN_STATUS.cancelled, 'Stopped by user after executor budget was exhausted')!
-      db.locks.delete(run.repo)
+      releaseRepoLock(run.repo)
       recordEvent(run, {
         type: 'run.continuation_stopped',
         message: 'Run stopped after executor budget was exhausted',
@@ -722,11 +724,107 @@ Continue from the current workspace state. Inspect existing changes first, do no
     }
   }
 
+  /**
+   * Attempt to start the next queued run for a repo after a run has released its lock.
+   * Finds the oldest queued run for the repo (FIFO), prepares its workspace if needed,
+   * acquires the repo lock, and starts execution.
+   *
+   * This function is synchronous up to startRun — SQLite reads/writes and ensureRunWorkspace
+   * are all synchronous, so the check-and-set of the lock is atomic within the JS event loop.
+   */
+  function scheduleNextQueuedRun(repo: string): void {
+    // Find all queued runs for this repo in FIFO order
+    const allQueued = db.runs.listByStatus(RUN_STATUS.queued)
+    const repoQueued = allQueued.filter(r => r.repo === repo)
+    if (repoQueued.length === 0)
+      return
+
+    const nextRun = repoQueued[0]! // listByStatus returns ASC by created_at
+
+    // Double-check that the repo is still free (no active lock)
+    const activeLock = db.locks.get(repo)
+    if (activeLock)
+      return
+
+    // Acquire lock for the next run
+    const now = new Date().toISOString()
+    db.locks.upsert({
+      repo,
+      runId: nextRun.id,
+      taskBranch: nextRun.task_branch,
+      status: RUN_STATUS.queued,
+      lockedAt: now,
+      updatedAt: now,
+    })
+
+    // Prepare workspace if it doesn't exist yet (ensureRunWorkspace is synchronous)
+    const workspaceDir = getRunWorkspacePath(config, repo, nextRun.id)
+    if (!existsSync(workspaceDir)) {
+      try {
+        ensureRunWorkspace(config, repo, nextRun.id, nextRun.base_branch, nextRun.task_branch)
+        if (!db.runWorkspaces.get(nextRun.id)) {
+          db.runWorkspaces.create({ runId: nextRun.id, repo, workspacePath: workspaceDir })
+        }
+      }
+      catch (err: unknown) {
+        const message = err instanceof Error ? err.message : 'Workspace preparation failed'
+        db.runs.updateStatus(nextRun.id, RUN_STATUS.failed, message)
+        db.locks.delete(repo)
+        recordEvent(nextRun, {
+          type: 'run.failed',
+          message: `Workspace preparation failed while dequeuing: ${message}`,
+          payload: { dequeued: true },
+        })
+        // Skip this run and try the next one in the queue
+        scheduleNextQueuedRun(repo)
+        return
+      }
+    }
+
+    // Start the run asynchronously (processRun is the long-running part)
+    startRun(nextRun.id).catch((err: unknown) => {
+      console.error('[run-manager] failed to start dequeued run', { runId: nextRun.id, error: err })
+    })
+  }
+
+  /**
+   * Release the repo lock and trigger the scheduler to start the next queued run.
+   * Use instead of db.locks.delete(repo) in all terminal/waiting paths.
+   */
+  function releaseRepoLock(repo: string): void {
+    db.locks.delete(repo)
+    scheduleNextQueuedRun(repo)
+  }
+
   function resumeQueuedRuns(): void {
     const queuedRuns = db.runs.listByStatus(RUN_STATUS.queued)
     console.warn('[run-manager] resuming queued runs', { count: queuedRuns.length })
 
+    // Group by repo and only start the first queued run per repo (FIFO).
+    // Skip repos that already hold a lock — they may have a waiting_approval /
+    // waiting_continuation run that was preserved by recoverInterruptedRuns().
+    const byRepo = new Map<string, RunRecord>()
     for (const run of queuedRuns) {
+      if (!byRepo.has(run.repo)) {
+        byRepo.set(run.repo, run)
+      }
+    }
+
+    for (const [repo, run] of byRepo) {
+      const existingLock = db.locks.get(repo)
+      if (existingLock && existingLock.run_id !== run.id) {
+        // Lock is held by a different run (e.g. waiting_approval preserved by
+        // recoverInterruptedRuns). Leave it alone — the queue will advance
+        // normally when that run is resolved or released.
+        console.warn('[run-manager] skipping queued run for repo — lock held by another run', {
+          repo,
+          queuedRunId: run.id,
+          lockRunId: existingLock.run_id,
+        })
+        continue
+      }
+      // existingLock is absent OR belongs to this queued run itself (it was
+      // dequeued and locked before the restart). Resume normally in both cases.
       startRun(run.id).catch((error) => {
         console.error('[run-manager] failed to resume queued run', { runId: run.id, error })
       })
@@ -791,6 +889,7 @@ Continue from the current workspace state. Inspect existing changes first, do no
     continueRun,
     retryRun,
     cancelRun,
+    scheduleNextQueuedRun,
     resumeQueuedRuns,
     abortActiveRuns,
     recoverInterruptedRuns,

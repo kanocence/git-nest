@@ -49,18 +49,32 @@ export default defineAgentHandler(async (event) => {
   const taskBranch = `ai/${runId}`
   const baseBranch = task.baseBranch || getDefaultRef(agent.config, name)
 
+  // Track whether the repo was free and workspace was prepared immediately
+  let repoBusy = false
+
   const run = await agent.locks.withRepoMutex(name, async () => {
     const activeLock = agent.db.locks.get(name)
     if (activeLock) {
-      throw createError({
-        statusCode: 409,
-        statusMessage: 'Repository workspace is already occupied by an AI task',
-        data: {
-          code: 'REPO_BUSY',
-          runId: activeLock.run_id,
-          branch: activeLock.task_branch,
-        },
+      // Repo is already occupied — queue the run without preparing workspace.
+      // The scheduler will prepare workspace and start execution when the active run finishes.
+      repoBusy = true
+      const now = new Date().toISOString()
+      const workspacePath = getRunWorkspacePath(agent.config, name, runId)
+      agent.db.runs.create({
+        id: runId,
+        repo: name,
+        taskPath: task.path,
+        taskTitle: task.title,
+        sourceRef,
+        baseBranch,
+        taskBranch,
+        status: RUN_STATUS.queued,
+        workspacePath,
+        createdAt: now,
+        updatedAt: now,
+        lastError: null,
       })
+      return agent.db.runs.get(runId)
     }
 
     const now = new Date().toISOString()
@@ -129,14 +143,25 @@ export default defineAgentHandler(async (event) => {
     workspacePath: run.workspace_path,
   })
 
-  agent.runManager!.startRun(run.id).catch((error: any) => {
-    console.error('[routes] startRun failed:', error)
-  })
+  if (!repoBusy) {
+    // Repo was free — start run immediately
+    agent.runManager!.startRun(run.id).catch((error: any) => {
+      console.error('[routes] startRun failed:', error)
+    })
+  }
+
+  // Compute queue position (number of queued runs for this repo created before this one)
+  const allQueued = agent.db.runs.listByStatus(RUN_STATUS.queued)
+  const queuePosition = allQueued.filter(r => r.repo === name && r.created_at < run.created_at).length + 1
 
   setResponseStatus(event, 202)
   return {
     run,
     workspace: getWorkspaceInfo(agent.config, name, agent.db.locks.get(name)),
-    note: 'The shared workspace and task branch are prepared. Background execution starts automatically.',
+    queued: repoBusy,
+    queuePosition: repoBusy ? queuePosition : null,
+    note: repoBusy
+      ? `Repository is busy. Run is queued at position ${queuePosition} and will start automatically.`
+      : 'The shared workspace and task branch are prepared. Background execution starts automatically.',
   }
 })

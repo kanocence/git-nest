@@ -71,8 +71,22 @@ const { data: runningData, refresh: refreshRunning } = useFetch<AiRunListRespons
   `/api/ai/runs?limit=20&status=${RUNNING_STATUSES}`,
   { key: 'tasks-running', default: () => ({ runs: [], total: 0, limit: 20, offset: 0 }) },
 )
+// Queued runs (waiting for repo lock) fetched separately for queue section
+const { data: queuedOnlyData, refresh: refreshQueued } = useFetch<AiRunListResponse>(
+  '/api/ai/runs?limit=50&status=queued',
+  { key: 'tasks-queued-only', default: () => ({ runs: [], total: 0, limit: 50, offset: 0 }) },
+)
 const attentionRuns = computed(() => attentionData.value?.runs || [])
 const runningRuns = computed(() => runningData.value?.runs || [])
+// Queued runs that are NOT also picked up by RUNNING_STATUSES (they're all queued, but some may be
+// just-dequeued and about to run — show them all in the queue section)
+const allQueuedRuns = computed(() => queuedOnlyData.value?.runs || [])
+
+// Queue position within each repo: for each queued run, count how many queued runs for the same
+// repo have an earlier created_at
+function getQueuePosition(run: AiRunRecord): number {
+  return allQueuedRuns.value.filter(r => r.repo === run.repo && r.created_at < run.created_at).length + 1
+}
 
 const { data: sseData } = useEventSource('/api/ai/events')
 
@@ -83,7 +97,7 @@ const debouncedRefresh = useDebounceFn(async () => {
     return
   isRefreshing.value = true
   try {
-    await Promise.all([refresh(), refreshAttention(), refreshRunning()])
+    await Promise.all([refresh(), refreshAttention(), refreshRunning(), refreshQueued()])
   }
   finally {
     isRefreshing.value = false
@@ -102,7 +116,7 @@ watch(sseData, (newData) => {
       ...latestRunEvents.value,
       [runId]: toUiEvent(event, true),
     }
-    if (['run.completed', 'run.failed', 'run.cancelled', 'run.released', 'run.waiting_approval', 'run.waiting_continuation'].includes(event.type))
+    if (['run.completed', 'run.failed', 'run.cancelled', 'run.released', 'run.waiting_approval', 'run.waiting_continuation', 'run.queued'].includes(event.type))
       debouncedRefresh()
   }
   catch {
@@ -127,6 +141,25 @@ function getRunSummary(run: AiRunRecord) {
   if (isActiveRun(run.status))
     return 'Waiting for live executor output...'
   return `Last known status: ${run.status}`
+}
+
+// Cancel a queued run (uses the release endpoint)
+const cancellingQueuedRun = ref<string | null>(null)
+const cancelQueuedError = ref('')
+
+async function cancelQueuedRun(runId: string) {
+  cancellingQueuedRun.value = runId
+  cancelQueuedError.value = ''
+  try {
+    await $fetch(`/api/ai/runs/${runId}/release`, { method: 'POST' })
+    await debouncedRefresh()
+  }
+  catch (error: any) {
+    cancelQueuedError.value = error?.data?.statusMessage || error?.statusMessage || 'Cancel failed'
+  }
+  finally {
+    cancellingQueuedRun.value = null
+  }
 }
 
 const runToDelete = ref<string | null>(null)
@@ -209,6 +242,12 @@ const pageSizeStr = computed({
         <span class="stat-label">Running</span>
       </div>
       <div class="stat-sep" />
+      <div class="stat-item" :class="{ 'stat-item--attention': allQueuedRuns.length > 0 }">
+        <Icon name="i-carbon-time" class="stat-icon stat-icon--queued" />
+        <span class="stat-value">{{ allQueuedRuns.length }}</span>
+        <span class="stat-label">Queued</span>
+      </div>
+      <div class="stat-sep" />
       <div class="stat-item" :class="{ 'stat-item--attention': attentionRuns.length > 0 }">
         <Icon name="i-carbon-warning" class="stat-icon stat-icon--attention" />
         <span class="stat-value">{{ attentionRuns.length }}</span>
@@ -219,6 +258,47 @@ const pageSizeStr = computed({
         <Icon name="i-carbon-list" class="stat-icon" />
         <span class="stat-value">{{ totalRuns }}</span>
         <span class="stat-label">Total</span>
+      </div>
+    </div>
+
+    <!-- Queue section: any queued runs -->
+    <div v-if="allQueuedRuns.length > 0" class="queue-section">
+      <div class="section-heading">
+        <Icon name="i-carbon-time" class="section-heading-icon section-heading-icon--queued" />
+        <span>Run Queue</span>
+        <span class="section-count">{{ allQueuedRuns.length }}</span>
+      </div>
+      <div v-if="cancelQueuedError" class="gn-alert gn-alert--error queue-error">
+        {{ cancelQueuedError }}
+      </div>
+      <div class="queue-list">
+        <div
+          v-for="run in allQueuedRuns"
+          :key="run.id"
+          class="queue-card"
+        >
+          <div class="queue-card-left">
+            <span class="queue-position">#{{ getQueuePosition(run) }}</span>
+            <div class="queue-card-info">
+              <NuxtLink :to="{ name: 'tasks-id', params: { id: run.id } }" class="run-link">
+                {{ run.task_title || run.task_path }}
+              </NuxtLink>
+              <span class="queue-card-meta">
+                <NuxtLink :to="`/repos/${run.repo}`" class="repo-link">{{ run.repo }}</NuxtLink>
+                · {{ formatDate(run.created_at) }}
+              </span>
+            </div>
+          </div>
+          <button
+            class="queue-cancel-btn"
+            title="Cancel queued run"
+            type="button"
+            :disabled="cancellingQueuedRun === run.id"
+            @click="cancelQueuedRun(run.id)"
+          >
+            <Icon :name="cancellingQueuedRun === run.id ? 'i-carbon-circle-dash' : 'i-carbon-close'" />
+          </button>
+        </div>
       </div>
     </div>
 
@@ -796,5 +876,100 @@ const pageSizeStr = computed({
 .run-summary--attention {
   color: var(--color-warning);
   background-color: var(--color-warning-light, color-mix(in srgb, var(--color-warning) 8%, transparent));
+}
+
+/* Queue section */
+.queue-section {
+  margin-bottom: var(--space-5);
+}
+
+.section-heading-icon--queued {
+  color: var(--color-primary);
+}
+
+.stat-icon--queued {
+  color: var(--color-primary);
+}
+
+.queue-error {
+  margin-bottom: var(--space-3);
+}
+
+.queue-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.queue-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius-lg);
+  background-color: var(--bg-surface);
+}
+
+.queue-card-left {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.queue-position {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 2rem;
+  height: 2rem;
+  border-radius: 9999px;
+  background-color: color-mix(in srgb, var(--color-primary) 12%, transparent);
+  color: var(--color-primary);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+}
+
+.queue-card-info {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.queue-card-meta {
+  font-size: var(--font-size-xs);
+  color: var(--text-muted);
+}
+
+.queue-cancel-btn {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  border-radius: var(--border-radius);
+  border: 1px solid var(--border-color);
+  background: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition:
+    color var(--transition-fast),
+    background-color var(--transition-fast);
+}
+
+.queue-cancel-btn:hover:not(:disabled) {
+  color: var(--color-danger);
+  background-color: color-mix(in srgb, var(--color-danger) 8%, transparent);
+  border-color: var(--color-danger);
+}
+
+.queue-cancel-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 </style>
