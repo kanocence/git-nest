@@ -204,7 +204,7 @@ function parseTaskDefinitionUnsafe(content: string, filePath: string): TaskDefin
   }
 
   if (validationErrors.length === 0) {
-    const incoming = new Set(edges.filter(edge => edge.to !== TASK_END_NODE_ID || nodeIds.has(TASK_END_NODE_ID)).map(edge => edge.to))
+    const incoming = new Set(edges.filter(edge => edge.to !== TASK_END_NODE_ID).map(edge => edge.to))
     const roots = nodes.filter(node => !incoming.has(node.id))
     if (roots.length !== 1) {
       validationErrors.push('task graph must have exactly one root node for the current executor')

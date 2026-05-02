@@ -1,5 +1,5 @@
 const ALLOWED_COMMAND_PREFIXES = ['npm', 'pnpm', 'yarn', 'node', 'npx']
-const SHELL_META_CHARS = /[;|&$`\n]/
+const SHELL_META_CHARS = /[;|&$`\n<>()]/
 const WHITESPACE_SPLIT_RE = /\s+/
 const WINDOWS_ABSOLUTE_PATH_RE = /^[a-z]:[\\/]/i
 
