@@ -1,0 +1,27 @@
+{
+  "name": "git-nest-cli",
+  "version": "0.1.0",
+  "description": "Git Nest CLI — manage your self-hosted Git repos from the terminal",
+  "type": "module",
+  "bin": {
+    "git-nest": "./dist/main.mjs"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsdown",
+    "dev": "tsdown --watch",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "citty": "^0.2.2",
+    "consola": "^3.4.2",
+    "ofetch": "^1.5.1"
+  },
+  "devDependencies": {
+    "@types/node": "^25.6.0",
+    "tsdown": "^0.21.10",
+    "typescript": "^6.0.3"
+  }
+}

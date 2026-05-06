@@ -15,8 +15,8 @@ const lastModified = useTimeAgo(() => new Date(props.repo.lastModified))
   >
     <div class="flex items-center justify-between">
       <div class="flex gap-2 items-center">
-        <div class="i-carbon-repository text-lg text-teal-600" />
-        <span class="text-lg font-600">{{ repo.name }}</span>
+        <Icon name="i-carbon-repo-source-code" class="text-lg text-teal-600" />
+        <span class="text-lg font-semibold">{{ repo.name }}</span>
       </div>
       <span
         v-if="repo.headBranch"

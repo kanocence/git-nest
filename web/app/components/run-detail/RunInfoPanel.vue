@@ -18,14 +18,22 @@ interface Run {
   current_iteration?: number | null
 }
 
-defineProps<{
+const props = defineProps<{
   run: Run
   executorBudget: ExecutorBudget
 }>()
+
+const isQueued = computed(() => props.run.status === 'queued')
 </script>
 
 <template>
   <div class="info-grid">
+    <!-- Queued banner -->
+    <div v-if="isQueued" class="queued-banner info-card info-card--queued">
+      <Icon name="i-carbon-time" class="queued-icon" />
+      <span>This run is waiting in the repository queue. It will start automatically when the current run completes.</span>
+    </div>
+
     <div class="info-card">
       <InfoField label="Repo">
         <NuxtLink :to="`/repos/${run.repo}`" class="info-link">
@@ -86,6 +94,27 @@ defineProps<{
   border: 1px solid var(--border-color);
   border-radius: var(--border-radius-lg);
   background-color: var(--bg-surface);
+}
+
+.info-card--queued {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border-color: color-mix(in srgb, var(--color-primary) 35%, var(--border-color));
+  background-color: color-mix(in srgb, var(--color-primary) 5%, var(--bg-surface));
+  font-size: var(--font-size-sm);
+  color: var(--color-primary);
+}
+
+.queued-icon {
+  flex-shrink: 0;
+  font-size: 1.1em;
+}
+
+.queued-banner {
+  gap: var(--space-2);
 }
 
 .info-link {

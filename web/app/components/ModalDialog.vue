@@ -65,7 +65,8 @@ const visible = defineModel<boolean>({ default: false })
   width: calc(100vw - 2rem);
   max-width: 28rem;
   max-height: calc(100vh - 2rem);
-  overflow: auto;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
   animation: contentShow 150ms ease;
 }
 

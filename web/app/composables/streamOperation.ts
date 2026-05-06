@@ -4,7 +4,7 @@ export interface SSEEvent {
   exitCode?: number
 }
 
-export type OperationType = 'clone' | 'pull'
+export type OperationType = 'clone' | 'pull' | 'import'
 
 export interface OperationRecord {
   id: number
@@ -16,39 +16,40 @@ export interface OperationRecord {
   exitCode?: number
 }
 
+const controllers = new Map<string, AbortController>()
+
 /**
- * 封装 SSE 流式操作（clone/pull）
+ * 封装 SSE 流式操作（clone/pull/import）
  */
 export function useStreamOperation() {
-  const operations = ref<OperationRecord[]>([])
-  const currentOp = ref<OperationRecord | null>(null)
-  let nextId = 1
-
-  /** 当前执行的 AbortController，用于取消操作 */
-  let currentController: AbortController | null = null
+  const operations = useState<OperationRecord[]>('workspace:stream-operations', () => [])
+  const nextId = useState('workspace:stream-operation-next-id', () => 1)
+  const localOperationKeys = new Set<string>()
 
   // 作用域销毁时（如组件卸载）自动中止未完成的 SSE 操作
   onScopeDispose(() => {
-    if (currentController) {
-      currentController.abort()
+    for (const key of localOperationKeys) {
+      controllers.get(key)?.abort()
+      controllers.delete(key)
     }
+    localOperationKeys.clear()
   })
 
   /**
-   * 执行流式操作（clone 或 pull）
+   * 执行流式操作（clone、pull 或 import）
    */
-  async function execute(type: OperationType, repoName: string): Promise<OperationRecord> {
-    // 中断上一个未完成的操作
-    if (currentController) {
-      currentController.abort()
-      currentController = null
-    }
+  async function execute(type: OperationType, repoName: string, options?: { remoteUrl?: string }): Promise<OperationRecord> {
+    const operationKey = `${type}:${repoName}`
+    const existingController = controllers.get(operationKey)
+    if (existingController)
+      existingController.abort()
 
     const controller = new AbortController()
-    currentController = controller
+    controllers.set(operationKey, controller)
+    localOperationKeys.add(operationKey)
 
     const op: OperationRecord = {
-      id: nextId++,
+      id: nextId.value++,
       type,
       repo: repoName,
       startedAt: new Date(),
@@ -56,21 +57,21 @@ export function useStreamOperation() {
       status: 'running',
     }
 
-    currentOp.value = op
     operations.value.unshift(op)
 
-    const url = `/api/repos/${repoName}/${type}`
+    const url = type === 'import' ? '/api/repos/import' : `/api/repos/${repoName}/${type}`
 
     try {
       const response = await fetch(url, {
         method: 'POST',
+        headers: type === 'import' ? { 'Content-Type': 'application/json' } : undefined,
+        body: type === 'import' ? JSON.stringify({ name: repoName, remoteUrl: options?.remoteUrl }) : undefined,
         signal: controller.signal,
       })
 
       if (!response.ok || !response.body) {
         op.status = 'failed'
         op.lines.push(`Error: HTTP ${response.status} — ${response.statusText}`)
-        currentOp.value = null
         return op
       }
 
@@ -139,8 +140,9 @@ export function useStreamOperation() {
       }
     }
     finally {
-      currentOp.value = null
-      currentController = null
+      if (controllers.get(operationKey) === controller)
+        controllers.delete(operationKey)
+      localOperationKeys.delete(operationKey)
     }
 
     return op
@@ -165,12 +167,27 @@ export function useStreamOperation() {
     }
   }
 
-  const isRunning = computed(() => currentOp.value !== null)
+  const currentOp = computed(() => operations.value.find(op => op.status === 'running') || null)
+  const runningByRepo = computed(() => {
+    const map: Record<string, boolean> = {}
+    for (const op of operations.value) {
+      if (op.status === 'running')
+        map[op.repo] = true
+    }
+    return map
+  })
+  const isRunning = computed(() => Boolean(currentOp.value))
+
+  function isRepoRunning(repoName: string) {
+    return Boolean(runningByRepo.value[repoName])
+  }
 
   return {
     operations,
     currentOp,
     isRunning,
+    isRepoRunning,
+    runningByRepo,
     execute,
   }
 }

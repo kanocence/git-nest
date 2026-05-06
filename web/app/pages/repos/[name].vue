@@ -253,7 +253,6 @@ async function handleDelete() {
       :selected-branch="selectedBranch"
       :ssh-url="sshUrl"
       @update:selected-branch="selectedBranch = $event"
-      @delete-branch="branchToDelete = $event; showDeleteBranchConfirm = true"
     />
 
     <RepoWorkspace
@@ -310,15 +309,40 @@ async function handleDelete() {
       <h3 class="danger-title">
         Danger Zone
       </h3>
-      <p class="danger-desc">
-        Once you delete a repository, there is no going back. Please be certain.
-      </p>
-      <ActionButton
-        label="Delete Repository"
-        icon="i-carbon-trash-can"
-        variant="danger"
-        @click="showDeleteConfirm = true"
-      />
+      <div class="danger-items">
+        <div v-if="selectedBranch" class="danger-item">
+          <div class="danger-item-info">
+            <div class="danger-item-title">
+              Delete Branch
+            </div>
+            <div class="danger-item-desc">
+              Permanently delete branch <strong>{{ selectedBranch }}</strong>. This cannot be undone.
+            </div>
+          </div>
+          <ActionButton
+            label="Delete Branch"
+            icon="i-carbon-trash-can"
+            variant="danger"
+            @click="branchToDelete = selectedBranch; showDeleteBranchConfirm = true"
+          />
+        </div>
+        <div class="danger-item">
+          <div class="danger-item-info">
+            <div class="danger-item-title">
+              Delete Repository
+            </div>
+            <div class="danger-item-desc">
+              Once you delete this repository, there is no going back.
+            </div>
+          </div>
+          <ActionButton
+            label="Delete Repository"
+            icon="i-carbon-trash-can"
+            variant="danger"
+            @click="showDeleteConfirm = true"
+          />
+        </div>
+      </div>
     </div>
 
     <!-- Modals -->
@@ -385,13 +409,36 @@ async function handleDelete() {
   font-size: var(--font-size-sm);
   font-weight: var(--font-weight-semibold);
   color: var(--color-danger);
-  margin-bottom: var(--space-2);
+  margin-bottom: var(--space-4);
 }
 
-.danger-desc {
+.danger-items {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.danger-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+}
+
+.danger-item-info {
+  flex: 1;
+}
+
+.danger-item-title {
   font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  color: var(--text-primary);
+}
+
+.danger-item-desc {
+  font-size: var(--font-size-xs);
   color: var(--text-secondary);
-  margin-bottom: var(--space-3);
+  margin-top: var(--space-1);
 }
 
 .warning-text {

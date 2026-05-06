@@ -5,8 +5,7 @@ import { appDescription } from './app/constants/index'
 export default defineNuxtConfig({
   modules: [
     '@vueuse/nuxt',
-    '@unocss/nuxt',
-    '@nuxtjs/color-mode',
+    '@nuxt/ui',
     '@vite-pwa/nuxt',
     '@nuxt/eslint',
   ],
@@ -34,12 +33,17 @@ export default defineNuxtConfig({
   },
 
   css: [
+    '~/assets/main.css',
     '~/assets/styles/variables.css',
     '~/assets/styles/utilities.css',
   ],
 
   colorMode: {
     classSuffix: '',
+  },
+
+  ui: {
+    fonts: false,
   },
 
   runtimeConfig: {
@@ -114,6 +118,12 @@ export default defineNuxtConfig({
       nuxt: {
         sortConfigKeys: true,
       },
+    },
+  },
+
+  icon: {
+    serverBundle: {
+      collections: ['carbon'],
     },
   },
 

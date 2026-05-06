@@ -13,7 +13,7 @@ const emit = defineEmits<{
   <div class="commit-section">
     <div class="commit-header">
       <h2 class="section-title">
-        <span class="i-carbon-commit" />
+        <Icon name="i-carbon-commit" />
         Recent Commits
       </h2>
       <ActionButton
@@ -26,7 +26,7 @@ const emit = defineEmits<{
     </div>
 
     <div v-if="error" class="alert alert--error">
-      <span class="i-carbon-warning" />
+      <Icon name="i-carbon-warning" />
       Failed to load commits
       <button class="retry-btn" @click="emit('refresh')">
         Retry

@@ -7,6 +7,8 @@ export interface DbStatements {
   getRun: ReturnType<DatabaseSync['prepare']>
   listRuns: ReturnType<DatabaseSync['prepare']>
   listRunsPaged: ReturnType<DatabaseSync['prepare']>
+  listRunsByStatusesPaged: ReturnType<DatabaseSync['prepare']>
+  countRunsByStatuses: ReturnType<DatabaseSync['prepare']>
   countRuns: ReturnType<DatabaseSync['prepare']>
   listRunsByStatus: ReturnType<DatabaseSync['prepare']>
   deleteRunEvents: ReturnType<DatabaseSync['prepare']>
@@ -71,6 +73,18 @@ export function createStatements(db: DatabaseSync): DbStatements {
         AND (? IS NULL OR repo = ?)
       ORDER BY datetime(created_at) DESC
       LIMIT ? OFFSET ?
+    `),
+    listRunsByStatusesPaged: db.prepare(`
+      SELECT * FROM runs
+      WHERE status IN (SELECT value FROM json_each(?))
+        AND (? IS NULL OR repo = ?)
+      ORDER BY datetime(created_at) DESC
+      LIMIT ? OFFSET ?
+    `),
+    countRunsByStatuses: db.prepare(`
+      SELECT COUNT(*) AS total FROM runs
+      WHERE status IN (SELECT value FROM json_each(?))
+        AND (? IS NULL OR repo = ?)
     `),
     countRuns: db.prepare(`
       SELECT COUNT(*) AS total FROM runs

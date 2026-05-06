@@ -19,6 +19,8 @@ Git Nest 的 AI 能力已实现可运行的核心闭环。
 - 容器重启后的锁恢复和队列恢复
 - 审批状态持久化到 SQLite（重启后可恢复 `waiting_approval`）
 - Web 前端审批（Approve/Reject）、重试（Retry）和释放（Release）
+- 仓库级 FIFO 任务队列：同一仓库多个 run 自动排队，上一个完成后立即启动下一个
+- 队列可见性：`/tasks` 页面展示每个仓库的排队 run 及队列位置，支持取消排队中的 run
 
 尚未实现：
 
@@ -90,7 +92,8 @@ system_interrupted
 
 说明：
 
-- `queued` 表示“共享工作区和任务分支已经准备完成，后台执行器即将接管”
+- `queued` 表示仓库当前有活跃 run，本 run 正在队列中等待轮到自己；workspace 和任务分支**尚未**准备，等队列调度到时才会准备
+- `preparing` 表示共享 workspace 和任务分支正在准备中，后台执行器即将接管
 - `running` 表示最小执行器正在调用模型并推进节点
 
 ## 5. 任务 YAML
@@ -273,7 +276,8 @@ GET  /api/events
 - `GET /api/repos/:repo/ai/workspace`
   返回共享工作区状态和 AI 占用信息
 - `POST /api/repos/:repo/ai/tasks/start`
-  准备 workspace、切任务分支、加锁并自动启动后台执行
+  若仓库空闲：准备 workspace、切任务分支、加锁并自动启动后台执行（200）
+  若仓库正忙：将 run 以 `queued` 状态写入队列，等待当前 run 完成后自动调度（202，响应含 `queued: true` 和 `queuePosition`）
 - `POST /api/ai/runs/:id/resume`
   恢复 `waiting_approval` 状态的 run；审批决策已持久化到 SQLite，agent 重启后可自动恢复
 - `POST /api/ai/runs/:id/continue`
@@ -281,7 +285,7 @@ GET  /api/events
 - `POST /api/ai/runs/:id/stop`
   停止 `waiting_continuation` 状态的 run，释放仓库锁
 - `POST /api/ai/runs/:id/release`
-  释放活跃 run：对 `running` 状态发送协作式取消信号；对 `queued`/`preparing` 直接释放仓库锁并将 run 置为 `cancelled`
+  释放活跃 run：对 `running`/`preparing` 状态发送取消信号并释放仓库锁；对 `queued` 状态直接取消（不持有锁，取消后自动触发同仓库下一个排队 run）
 
 ## 7. Web 页面
 

@@ -9,88 +9,108 @@ useHead({ title: appName })
 
 const { repos, loading, error, refresh } = useRepos()
 const createDialog = ref<{ open: () => void } | null>(null)
-
-// 搜索/筛选
 const search = ref('')
+
+const {
+  activeRunsByRepo,
+  branchesLoading,
+  expandedRepos,
+  refreshOverview,
+  refreshWorkspaceStatuses,
+  repoBranches,
+  repoTimeAgo,
+  toggleBranches,
+  workspaceByRepo,
+  workspaceLoading,
+} = useWorkspaceOverview(repos)
+
+const { operations, currentOp, runningByRepo, execute } = useStreamOperation()
+const displayedOperation = computed(() => currentOp.value || operations.value[0] || null)
+
 const filteredRepos = computed(() => {
-  if (!search.value.trim())
+  const q = search.value.trim().toLowerCase()
+  if (!q)
     return repos.value
-  const q = search.value.toLowerCase()
-  return repos.value.filter(r =>
-    r.name.toLowerCase().includes(q)
-    || r.headBranch?.toLowerCase().includes(q),
+  return repos.value.filter(repo =>
+    repo.name.toLowerCase().includes(q)
+    || repo.headBranch?.toLowerCase().includes(q)
+    || repoBranches.value[repo.name]?.some(branch => branch.toLowerCase().includes(q)),
   )
 })
 
-// 推送事件自动刷新
 usePushEvents({
-  onPush: () => refresh(),
-})
-
-// 删除相关
-const { deleteRepo, loading: deleting, error: deleteError } = useRunner()
-const showDeleteConfirm = ref(false)
-const repoToDelete = ref('')
-
-function confirmDelete(name: string) {
-  repoToDelete.value = name
-  showDeleteConfirm.value = true
-}
-
-async function handleDelete() {
-  try {
-    await deleteRepo(repoToDelete.value)
-    showDeleteConfirm.value = false
-    repoToDelete.value = ''
+  onPush: async () => {
     await refresh()
-  }
-  catch {
-    // error handled by useRunner
-  }
-}
+    await refreshOverview()
+  },
+})
 
 async function onRepoCreated() {
   await refresh()
+  await refreshOverview()
+}
+
+async function handleClone(repo: string) {
+  try {
+    const op = await execute('clone', repo)
+    if (op.status === 'success') {
+      await refresh()
+      await refreshWorkspaceStatuses([repo])
+    }
+  }
+  catch {
+    // network/abort errors are shown in TerminalOutput
+  }
+}
+
+async function handlePull(repo: string) {
+  try {
+    const op = await execute('pull', repo)
+    if (op.status === 'success') {
+      await refresh()
+      await refreshWorkspaceStatuses([repo])
+    }
+  }
+  catch {
+    // network/abort errors are shown in TerminalOutput
+  }
 }
 </script>
 
 <template>
-  <div class="repo-list-page">
-    <!-- Header -->
+  <div class="workspace-page">
     <div class="gn-page-header">
       <div>
         <h1 class="gn-page-title">
-          <span class="i-carbon-repository gn-page-icon" />
-          Repositories
+          <Icon name="i-carbon-workspace" class="gn-page-icon" />
+          Workspace Overview
         </h1>
         <p class="gn-page-subtitle">
-          {{ repos.length }} repositories
+          {{ repos.length }} {{ repos.length === 1 ? 'repository' : 'repositories' }}
         </p>
       </div>
       <ActionButton
-        label="New"
+        label="New Repository"
         icon="i-carbon-add"
         @click="createDialog?.open()"
       />
     </div>
 
-    <!-- Search -->
     <div v-if="repos.length > 0" class="search-box">
       <div class="search-wrapper">
-        <span class="i-carbon-search search-icon" />
+        <Icon name="i-carbon-search" class="search-icon" />
         <input
           v-model="search"
           type="text"
-          placeholder="Filter repositories..."
+          placeholder="Filter by repo, branch, or workspace..."
           class="search-input"
         >
       </div>
     </div>
 
-    <!-- Error State -->
     <div v-if="error" class="gn-alert gn-alert--error">
       <div class="alert-content">
-        <span class="i-carbon-warning" />
+        <Icon name="i-carbon-warning" />
         <span>Failed to load repositories. Is git-runner running?</span>
       </div>
       <button class="retry-btn" @click="refresh()">
@@ -98,14 +118,12 @@ async function onRepoCreated() {
       </button>
     </div>
 
-    <!-- Loading State -->
     <div v-else-if="loading" class="gn-loading-state">
       <span>Loading repositories...</span>
     </div>
 
-    <!-- Empty State -->
     <div v-else-if="repos.length === 0" class="empty-state">
-      <div class="i-carbon-folder empty-icon" />
+      <Icon name="i-carbon-repo" class="empty-icon block" />
       <p class="empty-text">
         No repositories yet
       </p>
@@ -116,69 +134,46 @@ async function onRepoCreated() {
       />
     </div>
 
-    <!-- Repo List -->
-    <div v-else class="repo-list">
-      <div
-        v-for="repo in filteredRepos"
-        :key="repo.name"
-        class="repo-item"
-      >
-        <RepoCard :repo="repo" />
-        <button
-          class="delete-btn"
-          title="Delete repository"
-          @click.prevent="confirmDelete(repo.name)"
-        >
-          <span class="i-carbon-trash-can" />
-        </button>
-      </div>
-
-      <!-- No search results -->
-      <div v-if="filteredRepos.length === 0 && search" class="search-empty">
-        <span class="i-carbon-search search-empty-icon" />
-        <p>No repositories match "{{ search }}"</p>
-      </div>
-    </div>
-
-    <!-- Create Dialog -->
-    <CreateRepoDialog
-      ref="createDialog"
-      @created="onRepoCreated"
-    />
-
-    <!-- Delete Confirmation Dialog -->
-    <ModalDialog v-model="showDeleteConfirm" title="Delete Repository">
-      <p>Are you sure you want to delete <strong>{{ repoToDelete }}</strong>?</p>
-      <p class="gn-warning-text">
-        This action cannot be undone. The bare repository and all its data will be permanently removed.
-      </p>
-      <p v-if="deleteError" class="gn-error-text">
-        {{ deleteError }}
-      </p>
-      <template #actions>
-        <ActionButton
-          label="Delete"
-          icon="i-carbon-trash-can"
-          variant="danger"
-          :loading="deleting"
-          @click="handleDelete"
+    <template v-else>
+      <div class="workspace-list">
+        <WorkspaceRepoBlock
+          v-for="repo in filteredRepos"
+          :key="repo.name"
+          :repo="repo"
+          :active-run="activeRunsByRepo[repo.name]"
+          :workspace="workspaceByRepo[repo.name]"
+          :workspace-loading="workspaceLoading[repo.name]"
+          :branches="repoBranches[repo.name]"
+          :branches-loading="branchesLoading[repo.name]"
+          :expanded="expandedRepos.has(repo.name)"
+          :time-ago="repoTimeAgo[repo.name]"
+          :is-running="runningByRepo[repo.name]"
+          @toggle-branches="toggleBranches"
+          @clone="handleClone"
+          @pull="handlePull"
         />
-      </template>
-    </ModalDialog>
+
+        <div v-if="filteredRepos.length === 0 && search" class="search-empty">
+          <Icon name="i-carbon-search" class="search-empty-icon block" />
+          <p>No repositories match "{{ search }}"</p>
+        </div>
+      </div>
+
+      <TerminalOutput :operation="displayedOperation" />
+      <OperationHistory :operations="operations.filter(op => op !== displayedOperation)" />
+    </template>
+
+    <CreateRepoDialog ref="createDialog" @created="onRepoCreated" />
   </div>
 </template>
 
 <style scoped>
-.repo-list-page {
-  max-width: 48rem;
+.workspace-page {
+  max-width: 52rem;
   margin: 0 auto;
 }
 
-/* page-header 默认 margin-bottom: space-6，此页需缩小 */
-.gn-page-header {
-  margin-bottom: var(--space-4);
-}
-
+.gn-page-header,
 .search-box {
   margin-bottom: var(--space-4);
 }
@@ -197,8 +192,8 @@ async function onRepoCreated() {
 
 .search-input {
   width: 100%;
-  padding: var(--space-2) var(--space-3);
-  padding-left: var(--space-9);
+  height: 2rem;
+  padding: 0 var(--space-3) 0 var(--space-9);
   font-size: var(--font-size-sm);
   color: var(--text-primary);
   background-color: var(--bg-surface);
@@ -219,7 +214,6 @@ async function onRepoCreated() {
   color: var(--text-muted);
 }
 
-/* alert-content / retry-btn 是此页的扩展结构 */
 .alert-content {
   display: flex;
   gap: var(--space-2);
@@ -236,8 +230,13 @@ async function onRepoCreated() {
   color: inherit;
 }
 
-.empty-state {
+.empty-state,
+.search-empty {
   text-align: center;
+  color: var(--text-muted);
+}
+
+.empty-state {
   padding: var(--space-16) 0;
 }
 
@@ -252,56 +251,19 @@ async function onRepoCreated() {
   margin-bottom: var(--space-4);
 }
 
-.repo-list {
+.workspace-list {
   display: flex;
   flex-direction: column;
   gap: var(--space-3);
-}
-
-.repo-item {
-  position: relative;
-}
-
-.delete-btn {
-  position: absolute;
-  right: var(--space-4);
-  top: var(--space-4);
-  padding: var(--space-1);
-  border-radius: var(--border-radius-sm);
-  color: var(--text-muted);
-  background: none;
-  border: none;
-  cursor: pointer;
-  opacity: 1;
-  transition:
-    color var(--transition-fast),
-    background-color var(--transition-fast);
-}
-
-.delete-btn:hover {
-  color: var(--color-danger);
-  background-color: var(--color-danger-light);
-}
-
-@media (min-width: 640px) {
-  .delete-btn {
-    opacity: 0;
-  }
-
-  .repo-item:hover .delete-btn {
-    opacity: 1;
-  }
+  margin-bottom: var(--space-4);
 }
 
 .search-empty {
-  text-align: center;
   padding: var(--space-8) 0;
-  color: var(--text-muted);
 }
 
 .search-empty-icon {
   font-size: 2rem;
-  display: block;
   margin: 0 auto var(--space-2);
 }
 </style>

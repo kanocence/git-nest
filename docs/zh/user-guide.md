@@ -158,6 +158,10 @@ edges:
 - 更新时间
 - 最近错误
 
+统计栏显示当前 Running / Attention（需审批/继续）/ Queued / 总计数量。
+
+如果某个仓库有多个排队 run，页面会显示"队列"区块，列出各 run 的队列位置，并提供取消按钮。
+
 点击某个 run 标题后，会进入 run 详情页，查看：
 
 - 实时 SSE 事件流（executor log、状态变更）
@@ -211,10 +215,10 @@ GET  /api/ai/events
 
 注意：
 
-- `start` 会准备共享 workspace、切任务分支并自动启动后台执行
+- `start` 若仓库空闲，会准备共享 workspace、切任务分支并自动启动后台执行；若仓库正忙，会将 run 加入该仓库的队列（FIFO），当前 run 完成后自动启动
 - `resume` / `approve` / `reject` 适用于 `waiting_approval` 状态；审批状态已持久化到 SQLite，agent 重启后会自动恢复
 - `continue` / `stop` 适用于 `waiting_continuation` 状态；当 executor 超时或明确返回可继续状态时，用户可以继续给它一段预算或停止任务
-- `release` 适用于所有活跃 run（`running` / `queued` / `preparing` / `waiting_continuation`），会根据状态自动发送取消信号或解除仓库锁
+- `release` 适用于所有活跃 run（`running` / `queued` / `preparing` / `waiting_continuation`）：对 `queued` run 直接取消并触发下一个排队任务；对其他状态发送取消信号并释放仓库锁
 - `retry` 适用于 `system_interrupted` 状态的 run
 - 如果 YAML 含有 `require_approval: true`，run 会在验收前进入 `waiting_approval`
 

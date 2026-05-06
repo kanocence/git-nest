@@ -9,17 +9,22 @@ export interface SSEProxyOptions {
   baseUrl: string
   path: string
   gitRunnerSecret: string
+  method?: string
+  body?: unknown
 }
 
 /**
  * 创建 SSE 代理请求，自动处理流式转发和客户端断开
  */
 export async function createSSEProxy(options: SSEProxyOptions): Promise<void> {
-  const { event, baseUrl, path, gitRunnerSecret } = options
+  const { event, baseUrl, path, gitRunnerSecret, method = 'POST', body } = options
 
   const headers: Record<string, string> = {}
   if (gitRunnerSecret) {
     headers.Authorization = `Bearer ${gitRunnerSecret}`
+  }
+  if (body !== undefined) {
+    headers['Content-Type'] = 'application/json'
   }
 
   const controller = new AbortController()
@@ -33,8 +38,9 @@ export async function createSSEProxy(options: SSEProxyOptions): Promise<void> {
   let response: Response
   try {
     response = await fetch(`${baseUrl}${path}`, {
-      method: 'POST',
+      method,
       headers,
+      body: body === undefined ? undefined : JSON.stringify(body),
       signal,
     })
   }

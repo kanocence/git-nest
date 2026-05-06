@@ -7,7 +7,7 @@ defineProps<{
 <template>
   <div class="banner">
     <div class="banner-content">
-      <span class="i-carbon-information banner-icon" />
+      <Icon name="i-carbon-information" class="banner-icon" />
       <div class="banner-text">
         <div class="banner-title">
           在 code-server 中查看变更
@@ -21,7 +21,7 @@ defineProps<{
           rel="noopener noreferrer"
           class="banner-link"
         >
-          <span class="i-carbon-code" />
+          <Icon name="i-carbon-code" />
           打开 code-server
         </a>
       </div>

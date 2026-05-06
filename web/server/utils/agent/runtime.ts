@@ -24,5 +24,5 @@ export function useAgentRuntime(event?: H3Event): AgentRuntime {
   if (globalRuntime)
     return globalRuntime
 
-  throw new Error('AgentRuntime is not initialized')
+  throw createError({ statusCode: 503, statusMessage: 'Agent runtime is not available (Docker or environment not configured)' })
 }

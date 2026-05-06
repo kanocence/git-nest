@@ -7,11 +7,14 @@ import {
   DropdownMenuTrigger,
 } from 'reka-ui'
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   branches?: string[]
   options?: Array<{ value: string, label: string }>
   modelValue: string | undefined
-}>()
+  icon?: string
+}>(), {
+  icon: 'i-carbon-branch',
+})
 
 const emit = defineEmits<{
   (e: 'update:modelValue', value: string): void
@@ -38,9 +41,9 @@ function select(value: string) {
 <template>
   <DropdownMenuRoot>
     <DropdownMenuTrigger class="selector-trigger" type="button">
-      <span class="i-carbon-branch" />
+      <Icon v-if="props.icon" :name="props.icon" />
       <span class="selector-label">{{ displayLabel }}</span>
-      <span class="i-carbon-chevron-down selector-chevron" />
+      <Icon name="i-carbon-chevron-down" class="selector-chevron" />
     </DropdownMenuTrigger>
 
     <DropdownMenuPortal>
@@ -63,7 +66,8 @@ function select(value: string) {
   display: inline-flex;
   align-items: center;
   gap: var(--space-2);
-  padding: var(--space-2) var(--space-3);
+  height: 2rem;
+  padding: 0 var(--space-3);
   font-size: var(--font-size-sm);
   border: 1px solid var(--border-color);
   border-radius: var(--border-radius-md);

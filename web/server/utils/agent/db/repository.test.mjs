@@ -53,6 +53,27 @@ test('runs list supports limit offset status repo and total', () => {
   assert.equal(page.runs[0].id, 'run-1')
 })
 
+test('runs list supports multiple statuses with repo filtering and pagination', () => {
+  const db = new DatabaseSync(':memory:')
+  initSchema(db)
+  const runs = createRunRepository(db, createStatements(db))
+  createRun(runs, 'run-1', 'completed', 'demo')
+  createRun(runs, 'run-2', 'running', 'demo')
+  createRun(runs, 'run-3', 'waiting_approval', 'demo')
+  createRun(runs, 'run-4', 'failed', 'demo')
+  createRun(runs, 'run-5', 'running', 'other')
+
+  const page = runs.list({
+    limit: 2,
+    offset: 0,
+    statuses: ['running', 'waiting_approval'],
+    repo: 'demo',
+  })
+
+  assert.equal(page.total, 2)
+  assert.deepEqual(page.runs.map(run => run.id), ['run-3', 'run-2'])
+})
+
 test('delete removes terminal runs and rejects active runs', () => {
   const db = new DatabaseSync(':memory:')
   initSchema(db)

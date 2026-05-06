@@ -15,7 +15,7 @@ defineEmits<{
   <div class="run-header">
     <div>
       <NuxtLink to="/tasks" class="back-link">
-        <span class="i-carbon-arrow-left" />
+        <Icon name="i-carbon-arrow-left" />
         Back to AI Tasks
       </NuxtLink>
       <h1 class="run-title">
@@ -50,6 +50,9 @@ defineEmits<{
 }
 
 .back-link {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
   font-size: var(--font-size-sm);
   color: var(--text-secondary);
   text-decoration: none;
